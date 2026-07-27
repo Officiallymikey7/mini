@@ -1,0 +1,44 @@
+/**
+ * Root project – pure Java core logic + JUnit 5 unit tests.
+ *
+ * No Fabric/Minecraft dependencies here; tests run offline against
+ * Maven Central only.  The Fabric mod entrypoint lives in the
+ * :fabric subproject (requires access to maven.fabricmc.net and
+ * Java 21).
+ *
+ * Run tests:   ./gradlew test   (or: gradle test  if no wrapper JAR)
+ * Full build:  ./gradlew :fabric:build
+ * Dev client:  ./gradlew :fabric:runClient
+ */
+plugins {
+    id 'java'
+}
+
+group   = 'io.github.officiallymikey7'
+version = project.mod_version
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+    }
+}

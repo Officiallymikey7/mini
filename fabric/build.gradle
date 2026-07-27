@@ -1,0 +1,67 @@
+/**
+ * :fabric subproject – Fabric Loom build for the Minecraft mod.
+ *
+ * Depends on the root project for all pure-Java agent logic.
+ *
+ * Prerequisites:
+ *   - Java 21
+ *   - Network access to maven.fabricmc.net
+ *
+ * Useful tasks:
+ *   ./gradlew :fabric:build        – compile + build mod JAR
+ *   ./gradlew :fabric:runClient    – launch Fabric dev client (singleplayer)
+ *   ./gradlew :fabric:runServer    – launch Fabric dev server
+ */
+plugins {
+    id 'fabric-loom' version '1.7-SNAPSHOT'
+    id 'maven-publish'
+}
+
+version = rootProject.mod_version
+group   = rootProject.maven_group
+
+base {
+    archivesName = rootProject.archives_base_name + '-fabric'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Core agent logic from the root project
+    implementation project(':')
+
+    // Minecraft + Fabric
+    minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+    mappings  "net.fabricmc:yarn:${rootProject.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+publishing {
+    publications {
+        create("mavenJava", MavenPublication) {
+            artifactId = rootProject.archives_base_name
+            from components.java
+        }
+    }
+}

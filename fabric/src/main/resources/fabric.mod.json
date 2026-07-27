@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "mini",
+  "version": "${version}",
+  "name": "Mini Agent",
+  "description": "Role-driven autonomous Minecraft agent framework – needs, planning, memory, and governance.",
+  "authors": ["Officiallymikey7"],
+  "contact": {
+    "sources": "https://github.com/Officiallymikey7/mini"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["io.github.officiallymikey7.mini.MiniMod"]
+  },
+  "mixins": [],
+  "depends": {
+    "fabricloader": ">=0.14.0",
+    "fabric-api": "*",
+    "minecraft": "~1.21.1",
+    "java": ">=21"
+  }
+}

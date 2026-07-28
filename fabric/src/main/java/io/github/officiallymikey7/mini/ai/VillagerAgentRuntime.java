@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -59,11 +59,18 @@ public final class VillagerAgentRuntime {
     private static final int RESOURCE_SCAN_RADIUS = 14;
     /** Maximum block targets sampled per resource type to keep scanning lightweight. */
     private static final int MAX_RESOURCE_TARGETS = 8;
+    /** Maximum size of the role cache to prevent unbounded memory growth. */
+    private static final int MAX_ROLE_CACHE_SIZE = 128;
 
     private final VillagerBody body;
     private final AgentMemory memory = new AgentMemory();
     private final UtilityDecisionEngine decisionEngine = new UtilityDecisionEngine();
-    private final Map<UUID, VillagerRole> roleByVillager = new HashMap<>();
+    private final Map<UUID, VillagerRole> roleByVillager = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<UUID, VillagerRole> eldest) {
+            return size() > MAX_ROLE_CACHE_SIZE;
+        }
+    };
 
     /** Last cached perception snapshot. */
     private PerceptionSnapshot lastSnapshot;
@@ -292,7 +299,12 @@ public final class VillagerAgentRuntime {
         if (!villagerUuid.equals(currentVillagerUuid)) {
             currentVillagerUuid = villagerUuid;
             role = roleByVillager.get(villagerUuid);
-            LOG.debug("[Mini][AI] Role assigned villager={} role={}", villagerUuid, role);
+            // Clear cached state to prevent cross-villager carry-over when VillagerBody re-binds
+            lastSnapshot = null;
+            currentPlan = null;
+            planTicks = 0;
+            planFailures = 0;
+            LOG.debug("[Mini][AI] Role assigned villager={} role={} (cleared cached state)", villagerUuid, role);
         }
     }
 

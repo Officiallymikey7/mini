@@ -31,11 +31,13 @@ import java.util.Map;
  */
 public final class AgentCommand {
 
-    /** Ticks between agent cycles (100 game ticks = 5 seconds at 20 TPS). */
-    private static final int AGENT_TICK_INTERVAL = 100;
+    /** Ticks between agent cycles (20 game ticks = 1 second at 20 TPS). */
+    private static final int AGENT_TICK_INTERVAL = 20;
 
-    /** Active agents keyed by player UUID string. */
+    /** Active agents keyed by controlled villager UUID string. */
     private static final Map<String, ActiveEntry> ACTIVE_AGENTS = new HashMap<>();
+    /** Owner player UUID -> controlled villager UUID mapping for command routing. */
+    private static final Map<String, String> OWNER_TO_VILLAGER = new HashMap<>();
 
     private AgentCommand() {}
 
@@ -66,7 +68,7 @@ public final class AgentCommand {
     /**
      * Called every server tick by {@link io.github.officiallymikey7.mini.MiniMod}.
      * <ul>
-     *   <li>Drives the Villager body movement on <em>every</em> tick for smooth following.</li>
+     *   <li>Drives villager action runtime on <em>every</em> tick.</li>
      *   <li>Executes one agent logic tick every {@value #AGENT_TICK_INTERVAL} game ticks.</li>
      * </ul>
      */
@@ -74,7 +76,7 @@ public final class AgentCommand {
         for (Map.Entry<String, ActiveEntry> entry : ACTIVE_AGENTS.entrySet()) {
             ActiveEntry e = entry.getValue();
 
-            // Body movement runs every server tick for smooth in-world following
+            // Body task runtime runs every server tick
             try {
                 e.body.tick(e.player);
             } catch (Exception ex) {
@@ -104,8 +106,8 @@ public final class AgentCommand {
             return 0;
         }
 
-        String uuid = player.getUuid().toString();
-        if (ACTIVE_AGENTS.containsKey(uuid)) {
+        String ownerUuid = player.getUuid().toString();
+        if (OWNER_TO_VILLAGER.containsKey(ownerUuid)) {
             source.sendFeedback(() -> Text.of("§eAgent already running. Use /mini stop first."), false);
             return 0;
         }
@@ -115,14 +117,25 @@ public final class AgentCommand {
             return 0;
         }
 
-        FabricWorldAdapter adapter = new FabricWorldAdapter(player);
+        VillagerBody body = new VillagerBody(ownerUuid);
+        body.ensureSpawned(player);
+        if (body.getVillagerUuid() == null) {
+            source.sendFeedback(() -> Text.of("§cFailed to acquire or spawn a villager body."), false);
+            return 0;
+        }
+
+        String villagerUuid = body.getVillagerUuid().toString();
+        if (ACTIVE_AGENTS.containsKey(villagerUuid)) {
+            source.sendFeedback(() -> Text.of("§cThe nearest villager is already controlled by another agent."), false);
+            return 0;
+        }
+
+        FabricWorldAdapter adapter = new FabricWorldAdapter(player, body);
         AgentConfig config = AgentConfig.builder(player.getName().getString(), roleId).build();
         Agent agent = new Agent(adapter, config);
 
-        VillagerBody body = new VillagerBody(uuid);
-        body.ensureSpawned(player);
-
-        ACTIVE_AGENTS.put(uuid, new ActiveEntry(agent, adapter, player, body));
+        ACTIVE_AGENTS.put(villagerUuid, new ActiveEntry(agent, adapter, player, body));
+        OWNER_TO_VILLAGER.put(ownerUuid, villagerUuid);
         source.sendFeedback(() ->
                 Text.of("§a[Mini] Agent started as role: " + roleId + ". Use /mini stop to stop."), false);
         return 1;
@@ -132,8 +145,9 @@ public final class AgentCommand {
         ServerPlayerEntity player = source.getPlayer();
         if (player == null) return 0;
 
-        String uuid = player.getUuid().toString();
-        ActiveEntry removed = ACTIVE_AGENTS.remove(uuid);
+        String ownerUuid = player.getUuid().toString();
+        String villagerUuid = OWNER_TO_VILLAGER.remove(ownerUuid);
+        ActiveEntry removed = villagerUuid == null ? null : ACTIVE_AGENTS.remove(villagerUuid);
         if (removed != null) {
             removed.body.despawn(removed.player);
             source.sendFeedback(() -> Text.of("§a[Mini] Agent stopped."), false);
@@ -147,8 +161,9 @@ public final class AgentCommand {
         ServerPlayerEntity player = source.getPlayer();
         if (player == null) return 0;
 
-        String uuid = player.getUuid().toString();
-        ActiveEntry entry = ACTIVE_AGENTS.get(uuid);
+        String ownerUuid = player.getUuid().toString();
+        String villagerUuid = OWNER_TO_VILLAGER.get(ownerUuid);
+        ActiveEntry entry = villagerUuid == null ? null : ACTIVE_AGENTS.get(villagerUuid);
         if (entry == null) {
             source.sendFeedback(() -> Text.of("§eNo agent running. Use /mini start [role]."), false);
             return 0;

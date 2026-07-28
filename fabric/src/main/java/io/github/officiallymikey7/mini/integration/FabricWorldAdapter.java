@@ -1,12 +1,12 @@
 package io.github.officiallymikey7.mini.integration;
 
+import io.github.officiallymikey7.mini.body.VillagerBody;
 import io.github.officiallymikey7.mini.core.HostileEntity;
 import io.github.officiallymikey7.mini.core.InventoryItem;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.Monster;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
+import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -20,11 +20,11 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Fabric / Minecraft adapter that reads live world state from a
- * {@link ServerPlayerEntity} and dispatches simple actions via the server API.
+ * Fabric / Minecraft adapter that reads live world state from a controlled
+ * villager body and dispatches actions into its autonomous runtime.
  *
- * <p>This adapter is intentionally kept simple: it reads common player stats and
- * performs actions by sending chat commands or adjusting player state directly.
+ * <p>This adapter is intentionally kept simple: it reads common villager stats and
+ * delegates action execution to {@link VillagerBody}.
  * Extend or replace for richer behaviour (pathfinding, crafting, etc.).
  *
  * <p><b>Thread safety:</b> Call {@link #getWorldState()} and
@@ -54,14 +54,16 @@ public final class FabricWorldAdapter implements BotAdapter {
     private static final int NEARBY_BLOCKS_CACHE_INTERVAL = 20;
 
     private final ServerPlayerEntity player;
+    private final VillagerBody body;
 
     /** Cached result of the last nearby-blocks scan. */
     private List<String> cachedNearbyBlocks = List.of();
     /** Game tick at which the cache was last populated. */
     private long cachedNearbyBlocksTick = -NEARBY_BLOCKS_CACHE_INTERVAL;
 
-    public FabricWorldAdapter(ServerPlayerEntity player) {
+    public FabricWorldAdapter(ServerPlayerEntity player, VillagerBody body) {
         this.player = player;
+        this.body = body;
     }
 
     // ── BotAdapter ───────────────────────────────────────────────────────────
@@ -69,59 +71,66 @@ public final class FabricWorldAdapter implements BotAdapter {
     @Override
     public RawWorldState getWorldState() {
         ServerWorld world = player.getServerWorld();
+        VillagerEntity villager = body.getControlledVillager(player);
+        if (villager == null) {
+            return emptyState(world);
+        }
 
         // --- time ---
         int gameTick = (int) (world.getTimeOfDay() % 24000);
         long worldTime = world.getTimeOfDay(); // monotonically increasing; used for cache tracking
 
+        // --- inventory (built first so hunger can be derived from food count) ---
+        List<InventoryItem> inventory = body.getInventorySnapshot();
+
         // --- health / hunger ---
-        float health = player.getHealth();
-        float hunger = player.getHungerManager().getFoodLevel();
+        // Hunger is derived from the villager inventory food count so that the planner
+        // correctly treats low food stock as a FOOD urgency trigger rather than relying
+        // on damage-based health proxy.
+        float health = villager.getHealth();
+        int foodCount = 0;
+        for (InventoryItem item : inventory) {
+            if ("minecraft:bread".equals(item.name)) {
+                foodCount = item.count;
+                break;
+            }
+        }
+        float hunger = Math.min(20f, foodCount * 4f);
 
         // --- nearby hostiles ---
-        Box box = player.getBoundingBox().expand(DETECTION_RADIUS);
+        Box box = villager.getBoundingBox().expand(DETECTION_RADIUS);
         List<HostileEntity> hostiles = new ArrayList<>();
         for (LivingEntity entity : world.getEntitiesByClass(LivingEntity.class, box,
                 e -> e instanceof Monster && e.isAlive())) {
-            double dist = player.distanceTo(entity);
+            double dist = villager.distanceTo(entity);
             hostiles.add(new HostileEntity(entity.getType().toString(), dist));
         }
 
-        // --- inventory ---
-        List<InventoryItem> inventory = new ArrayList<>();
-        for (int i = 0; i < player.getInventory().size(); i++) {
-            ItemStack stack = player.getInventory().getStack(i);
-            if (!stack.isEmpty()) {
-                inventory.add(new InventoryItem(
-                        stack.getItem().toString(), stack.getCount()));
-            }
-        }
-
         // --- shelter heuristic: agent is sheltered when indoors (no sky exposure) ---
-        boolean hasShelter = !world.isSkyVisible(player.getBlockPos().up());
-        int shelterDistance = hasShelter ? 0 : -1; // -1 = unknown distance
+        boolean hasShelter = !world.isSkyVisible(villager.getBlockPos().up());
+        int shelterDistance = hasShelter ? 0 : estimateShelterDistance(world, villager.getBlockPos());
 
         // --- nearby chat (populated externally via injectChat) ---
         List<String> chat = List.copyOf(pendingChat);
         pendingChat.clear();
 
         // --- spatial context ---
-        double posX = player.getX();
-        double posY = player.getY();
-        double posZ = player.getZ();
-        int lightLevel = world.getLightLevel(player.getBlockPos());
-        String biome = world.getBiome(player.getBlockPos())
+        double posX = villager.getX();
+        double posY = villager.getY();
+        double posZ = villager.getZ();
+        int lightLevel = world.getLightLevel(villager.getBlockPos());
+        String biome = world.getBiome(villager.getBlockPos())
                 .getKey()
                 .map(k -> k.getValue().getPath())
                 .orElse("unknown");
         String mainHandItem = Registries.ITEM
-                .getId(player.getMainHandStack().getItem()).getPath();
+                .getId(villager.getMainHandStack().getItem()).getPath();
         String offHandItem = Registries.ITEM
-                .getId(player.getOffHandStack().getItem()).getPath();
-        List<String> nearbyBlocks = getNearbyBlocksCached(worldTime, world);
+                .getId(villager.getOffHandStack().getItem()).getPath();
+        List<String> nearbyBlocks = getNearbyBlocksCached(worldTime, world, villager);
 
         return new RawWorldState(
-                player.getName().getString(),
+                villager.getName().getString(),
                 gameTick,
                 health,
                 hunger,
@@ -142,20 +151,9 @@ public final class FabricWorldAdapter implements BotAdapter {
 
     @Override
     public String performAction(String action) {
-        return switch (action) {
-            case "explore"               -> { player.sendMessage(Text.of("[Mini] Exploring…"), false); yield "Exploring area."; }
-            case "flee_to_shelter"       -> { player.sendMessage(Text.of("[Mini] Fleeing to shelter!"), false); yield "Fleeing to shelter."; }
-            case "find_or_build_shelter" -> { player.sendMessage(Text.of("[Mini] Seeking shelter…"), false); yield "Seeking shelter."; }
-            case "gather_wood"           -> { player.sendMessage(Text.of("[Mini] Gathering wood…"), false); yield "Looking for wood."; }
-            case "gather_food",
-                 "forage_food"           -> { player.sendMessage(Text.of("[Mini] Foraging food…"), false); yield "Foraging for food."; }
-            case "eat_food"              -> { player.sendMessage(Text.of("[Mini] Eating food…"), false); yield "Eating available food."; }
-            case "craft_tools"           -> { player.sendMessage(Text.of("[Mini] Crafting tools…"), false); yield "Attempting to craft tools."; }
-            case "build_shelter"         -> { player.sendMessage(Text.of("[Mini] Building shelter…"), false); yield "Building shelter."; }
-            case "attack_nearest_hostile"-> { player.sendMessage(Text.of("[Mini] Attacking hostile!"), false); yield "Attacking nearest hostile."; }
-            case "craft_sword_or_flee"   -> { player.sendMessage(Text.of("[Mini] Preparing defense…"), false); yield "Preparing defense."; }
-            default                      -> { player.sendMessage(Text.of("[Mini] " + action), false); yield "Performed: " + action; }
-        };
+        String result = body.performAction(action, player);
+        player.sendMessage(Text.of("[Mini] " + result), false);
+        return result;
     }
 
     @Override
@@ -180,9 +178,9 @@ public final class FabricWorldAdapter implements BotAdapter {
      * {@value #NEARBY_BLOCKS_CACHE_INTERVAL} ticks to avoid scanning ~1 183 block states
      * on every agent tick.
      */
-    private List<String> getNearbyBlocksCached(long currentTick, ServerWorld world) {
+    private List<String> getNearbyBlocksCached(long currentTick, ServerWorld world, VillagerEntity villager) {
         if (currentTick - cachedNearbyBlocksTick >= NEARBY_BLOCKS_CACHE_INTERVAL) {
-            cachedNearbyBlocks = scanNearbyBlocks(player, world);
+            cachedNearbyBlocks = scanNearbyBlocks(villager, world);
             cachedNearbyBlocksTick = currentTick;
         }
         return cachedNearbyBlocks;
@@ -197,8 +195,8 @@ public final class FabricWorldAdapter implements BotAdapter {
      *
      * <p>Uses a single mutable {@link BlockPos.Mutable} to avoid per-iteration allocations.
      */
-    private static List<String> scanNearbyBlocks(ServerPlayerEntity player, ServerWorld world) {
-        BlockPos origin = player.getBlockPos();
+    private static List<String> scanNearbyBlocks(VillagerEntity villager, ServerWorld world) {
+        BlockPos origin = villager.getBlockPos();
         Set<String> seen = new LinkedHashSet<>();
         int r = NEARBY_BLOCK_RADIUS;
         BlockPos.Mutable mutable = new BlockPos.Mutable();
@@ -218,5 +216,50 @@ public final class FabricWorldAdapter implements BotAdapter {
             }
         }
         return new ArrayList<>(seen);
+    }
+
+    private RawWorldState emptyState(ServerWorld world) {
+        int gameTick = (int) (world.getTimeOfDay() % 24000);
+        return new RawWorldState(
+                player.getName().getString(),
+                gameTick,
+                20f,
+                20f,
+                List.of(),
+                List.of(),
+                -1,
+                false,
+                List.of(),
+                player.getX(),
+                player.getY(),
+                player.getZ(),
+                world.getLightLevel(player.getBlockPos()),
+                "unknown",
+                "air",
+                "air",
+                List.of());
+    }
+
+    private static int estimateShelterDistance(ServerWorld world, BlockPos origin) {
+        if (!world.isSkyVisible(origin.up())) return 0;
+
+        int radius = 18;
+        int bestSquared = Integer.MAX_VALUE;
+        BlockPos.Mutable mutable = new BlockPos.Mutable();
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -3; dy <= 4; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    mutable.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
+                    BlockState state = world.getBlockState(mutable);
+                    if (state.isAir()) continue;
+                    if (!world.isSkyVisible(mutable.up())) {
+                        int sq = dx * dx + dy * dy + dz * dz;
+                        if (sq < bestSquared) bestSquared = sq;
+                    }
+                }
+            }
+        }
+        if (bestSquared == Integer.MAX_VALUE) return -1;
+        return (int) Math.sqrt(bestSquared);
     }
 }

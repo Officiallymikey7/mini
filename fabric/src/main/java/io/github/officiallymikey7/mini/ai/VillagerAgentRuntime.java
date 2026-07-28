@@ -186,8 +186,8 @@ public final class VillagerAgentRuntime {
         ServerWorld world = villager.getServerWorld();
         boolean night      = !world.isDay();
         boolean sheltered  = !world.isSkyVisible(villager.getBlockPos().up());
-        List<BlockPos> nearbyFood = scanNearbyBlocks(world, villager.getBlockPos(), VillagerAgentRuntime::isFoodBlock);
-        List<BlockPos> nearbyWood = scanNearbyBlocks(world, villager.getBlockPos(), VillagerAgentRuntime::isWoodBlock);
+        ScanResult foodScan = scanNearbyBlocks(world, villager.getBlockPos(), VillagerAgentRuntime::isFoodBlock);
+        ScanResult woodScan = scanNearbyBlocks(world, villager.getBlockPos(), VillagerAgentRuntime::isWoodBlock);
 
         // Scan for the nearest hostile within a 12-block radius
         Box dangerBox = villager.getBoundingBox().expand(HOSTILE_SCAN_RADIUS);
@@ -198,13 +198,13 @@ public final class VillagerAgentRuntime {
                 .orElse(null);
 
         double nearestHostileDistance = nearestHostile != null ? villager.distanceTo(nearestHostile) : -1.0;
-        double nearestFoodDistance = nearestDistance(villager.getBlockPos(), nearbyFood);
-        double nearestWoodDistance = nearestDistance(villager.getBlockPos(), nearbyWood);
+        double nearestFoodDistance = foodScan.nearestDistance;
+        double nearestWoodDistance = woodScan.nearestDistance;
 
         return new PerceptionSnapshot(
                 nearestHostile,
-                nearbyFood,
-                nearbyWood,
+                foodScan.blocks,
+                woodScan.blocks,
                 sheltered,
                 villager.getHealth(),
                 foodStock,
@@ -305,39 +305,34 @@ public final class VillagerAgentRuntime {
         };
     }
 
-    private static List<BlockPos> scanNearbyBlocks(
+    private static ScanResult scanNearbyBlocks(
             ServerWorld world,
             BlockPos origin,
             Predicate<BlockState> predicate) {
         List<BlockPos> matches = new ArrayList<>();
+        double nearestSq = -1.0;
         BlockPos.Mutable mutable = new BlockPos.Mutable();
-        outer:
         for (int dx = -RESOURCE_SCAN_RADIUS; dx <= RESOURCE_SCAN_RADIUS; dx++) {
             for (int dy = -2; dy <= 4; dy++) {
                 for (int dz = -RESOURCE_SCAN_RADIUS; dz <= RESOURCE_SCAN_RADIUS; dz++) {
                     BlockPos target = mutable.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
                     if (predicate.test(world.getBlockState(target))) {
-                        matches.add(target.toImmutable());
-                        if (matches.size() >= MAX_RESOURCE_TARGETS) {
-                            break outer;
+                        double sq = origin.getSquaredDistance(target);
+                        if (nearestSq < 0 || sq < nearestSq) {
+                            nearestSq = sq;
+                        }
+                        if (matches.size() < MAX_RESOURCE_TARGETS) {
+                            matches.add(target.toImmutable());
                         }
                     }
                 }
             }
         }
-        return matches;
+        double nearestDistance = nearestSq < 0 ? -1.0 : Math.sqrt(nearestSq);
+        return new ScanResult(matches, nearestDistance);
     }
 
-    private static double nearestDistance(BlockPos origin, List<BlockPos> blocks) {
-        double nearest = -1.0;
-        for (BlockPos pos : blocks) {
-            double sq = origin.getSquaredDistance(pos);
-            if (nearest < 0 || sq < nearest) {
-                nearest = sq;
-            }
-        }
-        return nearest < 0 ? -1.0 : Math.sqrt(nearest);
-    }
+    private record ScanResult(List<BlockPos> blocks, double nearestDistance) {}
 
     private static boolean isFoodBlock(BlockState state) {
         return state.isOf(Blocks.WHEAT)

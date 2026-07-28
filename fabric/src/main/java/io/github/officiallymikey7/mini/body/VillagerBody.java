@@ -381,6 +381,14 @@ public final class VillagerBody {
                gatherFoodNoProgressTicks = 0;
                gatherFoodLastProgress    = null;
                gatherFoodRetries++;
+
+               if (gatherFoodRetries >= GATHER_FOOD_MAX_RETRIES) {
+                   LOG.warn("[Mini][AI] gather_food: giving up after {} retries (STUCK) – switching to explore",
+                           GATHER_FOOD_MAX_RETRIES);
+                   activeAction      = "explore";
+                   actionTicks       = 0;
+                   gatherFoodRetries = 0;
+               }
                return;
            }
        } else {

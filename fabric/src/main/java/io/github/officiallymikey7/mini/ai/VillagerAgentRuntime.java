@@ -5,10 +5,16 @@ import io.github.officiallymikey7.mini.ai.decision.DecisionPlan;
 import io.github.officiallymikey7.mini.ai.memory.AgentMemory;
 import io.github.officiallymikey7.mini.ai.perception.PerceptionSnapshot;
 import io.github.officiallymikey7.mini.body.VillagerBody;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.math.Box;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Comparator;
 
 /**
  * Tick orchestrator that drives the Perception → Decision → Action (PDA) loop
@@ -36,6 +42,9 @@ public final class VillagerAgentRuntime {
 
     /** How often (in ticks) to run the decision step if no interrupt occurred. */
     private static final int DECISION_INTERVAL = 40;
+
+    /** Radius (blocks) used when scanning for hostile entities during perception. */
+    private static final double HOSTILE_SCAN_RADIUS = 12.0;
 
     private final VillagerBody body;
     private final AgentMemory memory = new AgentMemory();
@@ -155,15 +164,23 @@ public final class VillagerAgentRuntime {
                 .mapToInt(i -> i.count)
                 .sum();
 
-        var world = player.getServerWorld();
+        ServerWorld world = villager.getServerWorld();
         boolean night      = !world.isDay();
         boolean sheltered  = !world.isSkyVisible(villager.getBlockPos().up());
+
+        // Scan for the nearest hostile within a 12-block radius
+        Box dangerBox = villager.getBoundingBox().expand(HOSTILE_SCAN_RADIUS);
+        LivingEntity nearestHostile = world.getEntitiesByClass(LivingEntity.class, dangerBox,
+                        e -> e instanceof Monster && !e.isDead())
+                .stream()
+                .min(Comparator.comparingDouble(villager::distanceTo))
+                .orElse(null);
 
         // In Phase 1 the snapshot uses empty lists for block positions because
         // block scanning is still owned by VillagerBody. Phase 2 will move that
         // scanning here and expose it through the decision engine.
         return new PerceptionSnapshot(
-                null,
+                nearestHostile,
                 java.util.List.of(),
                 java.util.List.of(),
                 sheltered,

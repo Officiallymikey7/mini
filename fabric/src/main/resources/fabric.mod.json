@@ -11,7 +11,8 @@
   "license": "MIT",
   "environment": "*",
   "entrypoints": {
-    "main": ["io.github.officiallymikey7.mini.MiniMod"]
+    "main":   ["io.github.officiallymikey7.mini.MiniMod"],
+    "client": ["io.github.officiallymikey7.mini.client.MiniModClient"]
   },
   "mixins": [],
   "depends": {

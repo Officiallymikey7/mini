@@ -1,8 +1,7 @@
 package io.github.officiallymikey7.mini.body;
 
-import net.minecraft.entity.EntityType;
-import net.minecraft.entity.ai.pathing.EntityNavigation;
-import net.minecraft.entity.passive.VillagerEntity;
+import io.github.officiallymikey7.mini.entity.AiPlayerEntity;
+import io.github.officiallymikey7.mini.entity.EntityTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
@@ -50,7 +49,7 @@ public final class VillagerBody {
     private final String ownerUuid;
 
     private UUID   villagerUuid;
-    /** Registry-key string of the dimension where the Villager was spawned. */
+    /** Registry-key string of the dimension where the entity was spawned. */
     private String villagerWorldKey;
     private Vec3d  lastPos;
     private int    stuckCounter;
@@ -72,7 +71,7 @@ public final class VillagerBody {
 
         if (villagerUuid != null && worldKey.equals(villagerWorldKey)) {
             var existing = world.getEntity(villagerUuid);
-            if (existing instanceof VillagerEntity v && v.isAlive()) {
+            if (existing instanceof AiPlayerEntity e && e.isAlive()) {
                 return; // already live in the right world
             }
             LOG.info("[Mini] VillagerBody {} missing/dead; respawning for agent {}", villagerUuid, ownerUuid);
@@ -104,36 +103,34 @@ public final class VillagerBody {
 
     /**
      * Drives the body's movement and look direction each server tick.
-     * Automatically recovers from a missing or dead Villager.
+     * Automatically recovers from a missing or dead entity.
      *
      * @param player the player this body should follow/face
      */
     public void tick(ServerPlayerEntity player) {
         ensureSpawned(player);
 
-        VillagerEntity villager = resolveVillager(player.getServerWorld());
-        if (villager == null) return;
+        AiPlayerEntity body = resolveBody(player.getServerWorld());
+        if (body == null) return;
 
-        double dist = villager.distanceTo(player);
-        EntityNavigation nav = villager.getNavigation();
+        double dist = body.distanceTo(player);
 
         if (dist > FOLLOW_DISTANCE) {
-            nav.startMovingTo(player, MOVE_SPEED);
-        } else {
-            nav.stop();
+            // Delegate pathfinding to AiMoveToGoal via the ai-hook
+            body.aiMoveTo(player.getX(), player.getY(), player.getZ(), MOVE_SPEED);
         }
 
         // Always keep looking toward the player
-        villager.getLookControl().lookAt(player, 30f, 30f);
+        body.aiLookAt(player.getX(), player.getEyeY(), player.getZ());
 
         // Stuck detection: if far but position has not changed, teleport to recover
-        Vec3d currentPos = villager.getPos();
+        Vec3d currentPos = body.getPos();
         if (lastPos != null && dist > FOLLOW_DISTANCE + 1.0 && currentPos.distanceTo(lastPos) < 0.05) {
             stuckCounter++;
             if (stuckCounter >= STUCK_THRESHOLD) {
-                villager.refreshPositionAndAngles(
+                body.refreshPositionAndAngles(
                         player.getX() + 1.5, player.getY(), player.getZ(), 0f, 0f);
-                nav.stop();
+                body.getNavigation().stop();
                 stuckCounter = 0;
                 LOG.debug("[Mini] VillagerBody {} was stuck – teleported near player", villagerUuid);
             }
@@ -146,20 +143,20 @@ public final class VillagerBody {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private void spawnNew(ServerPlayerEntity player, ServerWorld world, String worldKey) {
-        VillagerEntity villager = new VillagerEntity(EntityType.VILLAGER, world);
+        AiPlayerEntity body = new AiPlayerEntity(EntityTypes.AI_PLAYER, world);
 
         Vec3d spawnPos = player.getPos().add(2.0, 0.0, 0.0);
-        villager.refreshPositionAndAngles(spawnPos.x, spawnPos.y, spawnPos.z, 0f, 0f);
+        body.refreshPositionAndAngles(spawnPos.x, spawnPos.y, spawnPos.z, 0f, 0f);
 
-        villager.setCustomName(Text.literal(BODY_NAME));
-        villager.setCustomNameVisible(true);
-        villager.setInvulnerable(true);
+        body.setCustomName(Text.literal(BODY_NAME));
+        body.setCustomNameVisible(true);
+        body.setInvulnerable(true);
         // Prevent natural despawn while bound to an agent
-        villager.setPersistent();
+        body.setPersistent();
 
-        world.spawnEntity(villager);
+        world.spawnEntity(body);
 
-        villagerUuid     = villager.getUuid();
+        villagerUuid     = body.getUuid();
         villagerWorldKey = worldKey;
         lastPos          = null;
         stuckCounter     = 0;
@@ -167,9 +164,9 @@ public final class VillagerBody {
         LOG.info("[Mini] Spawned VillagerBody {} for agent {}", villagerUuid, ownerUuid);
     }
 
-    private VillagerEntity resolveVillager(ServerWorld world) {
+    private AiPlayerEntity resolveBody(ServerWorld world) {
         if (villagerUuid == null) return null;
         var e = world.getEntity(villagerUuid);
-        return (e instanceof VillagerEntity v && v.isAlive()) ? v : null;
+        return (e instanceof AiPlayerEntity body && body.isAlive()) ? body : null;
     }
 }

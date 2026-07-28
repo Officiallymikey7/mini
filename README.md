@@ -21,7 +21,15 @@ The repository is a **two-module Gradle project**:
 │   ├── build.gradle                          # :fabric: fabric-loom plugin
 │   └── src/main/java/…/mini/
 │       ├── MiniMod.java                      # Fabric ModInitializer entry-point
+│       ├── body/VillagerBody.java            # In-world NPC body lifecycle (spawn/tick/despawn)
+│       ├── client/
+│       │   ├── MiniModClient.java            # Client entry-point; registers entity renderer
+│       │   └── renderer/AiPlayerRenderer.java# BipedEntityModel renderer (PLAYER layer)
 │       ├── command/AgentCommand.java         # /mini command tree
+│       ├── entity/
+│       │   ├── AiPlayerEntity.java           # PathAwareEntity body with ai* hooks
+│       │   ├── EntityTypes.java              # Entity-type registry + attribute binding
+│       │   └── goal/AiMoveToGoal.java        # Goal that reads AiPlayerEntity destinations
 │       └── integration/FabricWorldAdapter.java
 │
 └── src/
@@ -161,6 +169,60 @@ Once in-game, use the `/mini` command:
 | `/mini roles`        | List all available roles |
 
 The agent runs one logic cycle every **100 game ticks (5 seconds)** driven by the server tick event.
+
+---
+
+## AI NPC Body
+
+When you run `/mini start`, the mod spawns an **`AiPlayerEntity`** in the world immediately (same tick as the command) — no deferred initialization.
+
+### Rendering and animations
+
+The entity is rendered by `AiPlayerRenderer`, which uses Minecraft's built-in `BipedEntityModel` baked from `EntityModelLayers.PLAYER`:
+
+```
+AiPlayerRenderer
+  └─ MobEntityRenderer<AiPlayerEntity, BipedEntityModel<AiPlayerEntity>>
+       └─ BipedEntityModel(ctx.getPart(EntityModelLayers.PLAYER))
+```
+
+This gives the NPC all standard vanilla biped animations **automatically**:
+
+| Animation | Driven by |
+|-----------|-----------|
+| Walking / leg swing | `limbAnimator` (updated by entity movement) |
+| Arm swing | `swingHand(Hand.MAIN_HAND)` → `aiSwingArm()` |
+| Crouching | `setSneaking(true)` → `aiSetSneaking(true)` |
+| Sprinting stance | `setSprinting(true)` → `aiSetSprinting(true)` |
+| Head yaw / pitch | `LookControl` → `aiLookAt(x, y, z)` |
+
+Replace `assets/mini/textures/entity/ai_player.png` with any standard 64 × 64 player skin to customise the appearance.
+
+### Agent hook methods
+
+`AiPlayerEntity` exposes a set of `ai*` methods that the agent (or `VillagerBody`) calls to drive the NPC:
+
+| Method | Effect |
+|--------|--------|
+| `aiMoveTo(x, y, z, speed)` | Path to a world position |
+| `aiLookAt(x, y, z)` | Rotate head toward a point |
+| `aiSwingArm()` | Play main-hand swing animation |
+| `aiSetSprinting(boolean)` | Toggle sprint state |
+| `aiSetSneaking(boolean)` | Toggle crouch / sneak pose |
+
+### Spawn and lifecycle
+
+```
+/mini start [role]
+  ├─ AgentCommand.startAgent()
+  │    ├─ creates VillagerBody
+  │    ├─ calls body.ensureSpawned(player)   ← spawns AiPlayerEntity immediately
+  │    └─ registers ActiveEntry in ACTIVE_AGENTS
+  └─ server tick (every tick)
+       └─ VillagerBody.tick(player)          ← drives following + respawn if needed
+```
+
+`VillagerBody` also calls `ensureSpawned` on every tick, so the body automatically respawns if it is killed or lost (e.g. after a server restart).
 
 ### Example session
 

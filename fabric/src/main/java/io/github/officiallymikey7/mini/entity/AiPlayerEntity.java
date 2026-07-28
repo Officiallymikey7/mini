@@ -116,6 +116,18 @@ public class AiPlayerEntity extends PathAwareEntity {
         this.setSprinting(sprinting);
     }
 
+    /**
+     * Enables or disables the sneaking (crouching) pose.  When {@code true}
+     * {@link net.minecraft.entity.LivingEntity#isInSneakingPose()} returns
+     * {@code true}, which causes {@link net.minecraft.client.render.entity.model.BipedEntityModel}
+     * to render the entity in its crouched stance automatically.
+     *
+     * @param sneaking {@code true} to crouch, {@code false} to stand upright
+     */
+    public void aiSetSneaking(boolean sneaking) {
+        this.setSneaking(sneaking);
+    }
+
     // ── Package-private accessors for AiMoveToGoal ───────────────────────────
 
     /** @return {@code true} when the agent has set a movement target. */

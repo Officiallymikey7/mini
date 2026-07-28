@@ -108,6 +108,7 @@ public final class VillagerBody {
      * @param player the player this body should follow/face
      */
     public void tick(ServerPlayerEntity player) {
+        if (player.isSpectator()) return;
         ensureSpawned(player);
 
         AiPlayerEntity body = resolveBody(player.getServerWorld());

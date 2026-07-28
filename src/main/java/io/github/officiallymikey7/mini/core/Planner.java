@@ -195,7 +195,7 @@ public final class Planner {
                 ? "[]"
                 : state.nearbyHostiles.stream()
                         .map(h -> "{\"type\":\"" + h.type
-                                + "\",\"distance\":" + String.format("%.1f", h.distance) + "}")
+                                + "\",\"distance\":" + String.format(java.util.Locale.ROOT, "%.1f", h.distance) + "}")
                         .collect(Collectors.joining(",", "[", "]"));
 
         String nearbyBlocksJson = state.nearbyBlocks.isEmpty()

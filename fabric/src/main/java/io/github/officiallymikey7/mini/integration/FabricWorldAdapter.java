@@ -50,7 +50,15 @@ public final class FabricWorldAdapter implements BotAdapter {
     /** Scan radius (in blocks) for the nearby-blocks survey. */
     private static final int NEARBY_BLOCK_RADIUS = 6;
 
+    /** Refresh interval for the nearby-blocks cache (ticks). 20 = once per second at 20 TPS. */
+    private static final int NEARBY_BLOCKS_CACHE_INTERVAL = 20;
+
     private final ServerPlayerEntity player;
+
+    /** Cached result of the last nearby-blocks scan. */
+    private List<String> cachedNearbyBlocks = List.of();
+    /** Game tick at which the cache was last populated. */
+    private long cachedNearbyBlocksTick = -NEARBY_BLOCKS_CACHE_INTERVAL;
 
     public FabricWorldAdapter(ServerPlayerEntity player) {
         this.player = player;
@@ -64,6 +72,7 @@ public final class FabricWorldAdapter implements BotAdapter {
 
         // --- time ---
         int gameTick = (int) (world.getTimeOfDay() % 24000);
+        long worldTime = world.getTimeOfDay(); // monotonically increasing; used for cache tracking
 
         // --- health / hunger ---
         float health = player.getHealth();
@@ -109,7 +118,7 @@ public final class FabricWorldAdapter implements BotAdapter {
                 .getId(player.getMainHandStack().getItem()).getPath();
         String offHandItem = Registries.ITEM
                 .getId(player.getOffHandStack().getItem()).getPath();
-        List<String> nearbyBlocks = scanNearbyBlocks(player, world);
+        List<String> nearbyBlocks = getNearbyBlocksCached(worldTime, world);
 
         return new RawWorldState(
                 player.getName().getString(),
@@ -167,22 +176,38 @@ public final class FabricWorldAdapter implements BotAdapter {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
+     * Returns the nearby-blocks list, refreshing the cache at most once every
+     * {@value #NEARBY_BLOCKS_CACHE_INTERVAL} ticks to avoid scanning ~1 183 block states
+     * on every agent tick.
+     */
+    private List<String> getNearbyBlocksCached(long currentTick, ServerWorld world) {
+        if (currentTick - cachedNearbyBlocksTick >= NEARBY_BLOCKS_CACHE_INTERVAL) {
+            cachedNearbyBlocks = scanNearbyBlocks(player, world);
+            cachedNearbyBlocksTick = currentTick;
+        }
+        return cachedNearbyBlocks;
+    }
+
+    /**
      * Scans a small cube around the player and returns up to
      * {@value #MAX_NEARBY_BLOCKS} distinct non-trivial block-type names.
      * The scan intentionally excludes common terrain blocks (dirt, stone, grass)
      * so the list highlights blocks that are strategically relevant to the agent
      * (logs, ores, water, chests, crafting tables, etc.).
+     *
+     * <p>Uses a single mutable {@link BlockPos.Mutable} to avoid per-iteration allocations.
      */
     private static List<String> scanNearbyBlocks(ServerPlayerEntity player, ServerWorld world) {
         BlockPos origin = player.getBlockPos();
         Set<String> seen = new LinkedHashSet<>();
         int r = NEARBY_BLOCK_RADIUS;
+        BlockPos.Mutable mutable = new BlockPos.Mutable();
         outer:
         for (int dx = -r; dx <= r; dx++) {
             for (int dy = -2; dy <= 4; dy++) {
                 for (int dz = -r; dz <= r; dz++) {
                     if (seen.size() >= MAX_NEARBY_BLOCKS) break outer;
-                    BlockState state = world.getBlockState(origin.add(dx, dy, dz));
+                    BlockState state = world.getBlockState(mutable.set(origin, dx, dy, dz));
                     if (!state.isAir()) {
                         String name = Registries.BLOCK.getId(state.getBlock()).getPath();
                         if (!TRIVIAL_BLOCKS.contains(name)) {

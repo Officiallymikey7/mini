@@ -26,10 +26,10 @@ public class AiPlayerEntity extends PathAwareEntity {
 
     // ── Destination state (written by agent, read by AiMoveToGoal) ───────────
 
-    private double  destX;
-    private double  destY;
-    private double  destZ;
-    private double  destSpeed      = 0.5;
+    private double destX;
+    private double destY;
+    private double destZ;
+    private double destSpeed = 0.5;
     private boolean hasDestination = false;
 
     // ── Constructor ───────────────────────────────────────────────────────────
@@ -58,9 +58,9 @@ public class AiPlayerEntity extends PathAwareEntity {
      */
     public static DefaultAttributeContainer.Builder createAttributes() {
         return PathAwareEntity.createMobAttributes()
-                .add(EntityAttributes.GENERIC_MAX_HEALTH,      20.0)
-                .add(EntityAttributes.GENERIC_MOVEMENT_SPEED,   0.25)
-                .add(EntityAttributes.GENERIC_FOLLOW_RANGE,    32.0);
+                .add(EntityAttributes.GENERIC_MAX_HEALTH, 20.0)
+                .add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.25)
+                .add(EntityAttributes.GENERIC_FOLLOW_RANGE, 32.0);
     }
 
     // ── AI engine hooks ───────────────────────────────────────────────────────
@@ -70,16 +70,16 @@ public class AiPlayerEntity extends PathAwareEntity {
      * The {@link AiMoveToGoal} picks this up on its next tick and issues a
      * fresh path request to {@link net.minecraft.entity.ai.pathing.EntityNavigation}.
      *
-     * @param x     target block X (centre)
-     * @param y     target block Y
-     * @param z     target block Z (centre)
+     * @param x target block X (centre)
+     * @param y target block Y
+     * @param z target block Z (centre)
      * @param speed walk speed multiplier (1.0 = base mob speed)
      */
     public void aiMoveTo(double x, double y, double z, double speed) {
-        this.destX         = x;
-        this.destY         = y;
-        this.destZ         = z;
-        this.destSpeed     = speed;
+        this.destX = x;
+        this.destY = y;
+        this.destZ = z;
+        this.destSpeed = speed;
         this.hasDestination = true;
     }
 
@@ -131,23 +131,23 @@ public class AiPlayerEntity extends PathAwareEntity {
     // ── Package-private accessors for AiMoveToGoal ───────────────────────────
 
     /** @return {@code true} when the agent has set a movement target. */
-    boolean hasDestination()  { return hasDestination; }
+    public boolean hasDestination() { return hasDestination; }
 
     /** @return X component of the current movement target. */
-    double getDestX()         { return destX; }
+    public double getDestX() { return destX; }
 
     /** @return Y component of the current movement target. */
-    double getDestY()         { return destY; }
+    public double getDestY() { return destY; }
 
     /** @return Z component of the current movement target. */
-    double getDestZ()         { return destZ; }
+    public double getDestZ() { return destZ; }
 
     /** @return Requested movement speed multiplier. */
-    double getDestSpeed()     { return destSpeed; }
+    public double getDestSpeed() { return destSpeed; }
 
     /**
      * Clears the movement target so the entity returns to idle goals.
      * Called by {@link AiMoveToGoal#stop()} when navigation finishes.
      */
-    void clearDestination()   { hasDestination = false; }
+    public void clearDestination() { hasDestination = false; }
 }

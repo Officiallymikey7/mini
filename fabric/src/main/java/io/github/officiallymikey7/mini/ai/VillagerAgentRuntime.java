@@ -2,28 +2,38 @@ package io.github.officiallymikey7.mini.ai;
 
 import io.github.officiallymikey7.mini.ai.action.ActionResult;
 import io.github.officiallymikey7.mini.ai.decision.DecisionPlan;
+import io.github.officiallymikey7.mini.ai.decision.UtilityDecisionEngine;
 import io.github.officiallymikey7.mini.ai.memory.AgentMemory;
 import io.github.officiallymikey7.mini.ai.perception.PerceptionSnapshot;
 import io.github.officiallymikey7.mini.body.VillagerBody;
+import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.passive.VillagerEntity;
+import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * Tick orchestrator that drives the Perception → Decision → Action (PDA) loop
  * for one managed villager.
  *
- * <p><b>Phase 1</b> wraps the existing {@link VillagerBody} so that the PDA
- * architecture is in place without breaking current behaviour. Subsequent
- * phases will move logic out of {@code VillagerBody} and into dedicated
- * perception/decision modules wired through this runtime.
+ * <p><b>Phase 2</b> adds deterministic role assignment and a lightweight utility
+ * scoring decision engine while preserving Phase 1 execution semantics in
+ * {@link VillagerBody}.
  *
  * <h2>Tick cadences</h2>
  * <ul>
@@ -45,9 +55,15 @@ public final class VillagerAgentRuntime {
 
     /** Radius (blocks) used when scanning for hostile entities during perception. */
     private static final double HOSTILE_SCAN_RADIUS = 12.0;
+    /** Radius (blocks) for simple resource scanning used by utility scoring. */
+    private static final int RESOURCE_SCAN_RADIUS = 14;
+    /** Maximum block targets sampled per resource type to keep scanning lightweight. */
+    private static final int MAX_RESOURCE_TARGETS = 8;
 
     private final VillagerBody body;
     private final AgentMemory memory = new AgentMemory();
+    private final UtilityDecisionEngine decisionEngine = new UtilityDecisionEngine();
+    private final Map<UUID, VillagerRole> roleByVillager = new HashMap<>();
 
     /** Last cached perception snapshot. */
     private PerceptionSnapshot lastSnapshot;
@@ -63,6 +79,9 @@ public final class VillagerAgentRuntime {
 
     /** Monotonically increasing tick counter for this runtime. */
     private long totalTicks;
+    /** Current villager role resolved from deterministic assignment map. */
+    private VillagerRole role = VillagerRole.FARMER;
+    private UUID currentVillagerUuid;
 
     public VillagerAgentRuntime(VillagerBody body) {
         this.body = body;
@@ -89,9 +108,10 @@ public final class VillagerAgentRuntime {
         if (totalTicks % PERCEPTION_INTERVAL == 0) {
             VillagerEntity villager = body.getControlledVillager(player);
             if (villager != null) {
+                updateRole(villager);
                 lastSnapshot = buildSnapshot(player, villager);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("[Mini][AI] Perception: {}", lastSnapshot);
+                    LOG.debug("[Mini][AI] Perception: role={} {}", role, lastSnapshot);
                 }
             }
         }
@@ -101,9 +121,9 @@ public final class VillagerAgentRuntime {
                 && (currentPlan == null || !currentPlan.actionName.equals("flee_to_shelter"));
 
         if (interruptRequired || totalTicks % DECISION_INTERVAL == 0 || currentPlan == null) {
-            DecisionPlan newPlan = decide(lastSnapshot);
+            DecisionPlan newPlan = decide(lastSnapshot, role);
             if (newPlan != null && (currentPlan == null || !newPlan.actionName.equals(currentPlan.actionName))) {
-                LOG.debug("[Mini][AI] Decision: switching to plan={}", newPlan);
+                LOG.debug("[Mini][AI] Decision: role={} switching to plan={}", role, newPlan);
                 currentPlan  = newPlan;
                 planTicks    = 0;
                 planFailures = 0;
@@ -125,7 +145,7 @@ public final class VillagerAgentRuntime {
         currentPlan  = plan;
         planTicks    = 0;
         planFailures = 0;
-        LOG.debug("[Mini][AI] Plan assigned externally: {}", plan);
+        LOG.debug("[Mini][AI] Plan assigned externally: role={} {}", role, plan);
     }
 
     /** Returns the agent memory store for inspection. */
@@ -148,9 +168,8 @@ public final class VillagerAgentRuntime {
     /**
      * Builds a {@link PerceptionSnapshot} from the current world state.
      *
-     * <p>Phase 1: delegates to VillagerBody's inventory snapshot for stock data
-     * and reads world state for the remaining fields. A dedicated PerceptionModule
-     * will be introduced in Phase 2.
+     * <p>Phase 2: still reads stock data from {@link VillagerBody} but now also
+     * scans nearby food/wood blocks for utility distance scoring.
      */
     private PerceptionSnapshot buildSnapshot(ServerPlayerEntity player, VillagerEntity villager) {
         // Pull stock data from body's inventory snapshot
@@ -167,6 +186,8 @@ public final class VillagerAgentRuntime {
         ServerWorld world = villager.getServerWorld();
         boolean night      = !world.isDay();
         boolean sheltered  = !world.isSkyVisible(villager.getBlockPos().up());
+        List<BlockPos> nearbyFood = scanNearbyBlocks(world, villager.getBlockPos(), VillagerAgentRuntime::isFoodBlock);
+        List<BlockPos> nearbyWood = scanNearbyBlocks(world, villager.getBlockPos(), VillagerAgentRuntime::isWoodBlock);
 
         // Scan for the nearest hostile within a 12-block radius
         Box dangerBox = villager.getBoundingBox().expand(HOSTILE_SCAN_RADIUS);
@@ -176,37 +197,36 @@ public final class VillagerAgentRuntime {
                 .min(Comparator.comparingDouble(villager::distanceTo))
                 .orElse(null);
 
-        // In Phase 1 the snapshot uses empty lists for block positions because
-        // block scanning is still owned by VillagerBody. Phase 2 will move that
-        // scanning here and expose it through the decision engine.
+        double nearestHostileDistance = nearestHostile != null ? villager.distanceTo(nearestHostile) : -1.0;
+        double nearestFoodDistance = nearestDistance(villager.getBlockPos(), nearbyFood);
+        double nearestWoodDistance = nearestDistance(villager.getBlockPos(), nearbyWood);
+
         return new PerceptionSnapshot(
                 nearestHostile,
-                java.util.List.of(),
-                java.util.List.of(),
+                nearbyFood,
+                nearbyWood,
                 sheltered,
                 villager.getHealth(),
                 foodStock,
                 woodStock,
-                night);
+                night,
+                nearestHostileDistance,
+                nearestFoodDistance,
+                nearestWoodDistance);
     }
 
-    /**
-     * Minimal rule-based decision step.
-     *
-     * <p>Phase 1 only implements the safety-first priority: if a threat is
-     * present, override with {@code flee_to_shelter}. Otherwise the existing
-     * plan continues. A full utility-scoring decision engine will be added in
-     * Phase 2.
-     */
-    private DecisionPlan decide(PerceptionSnapshot snapshot) {
+    private DecisionPlan decide(PerceptionSnapshot snapshot, VillagerRole role) {
         if (snapshot == null) return currentPlan;
 
-        if (snapshot.hasHostileThreat()) {
-            return DecisionPlan.of("flee_to_shelter", null, 200, 3);
+        UtilityDecisionEngine.DecisionResult result = decisionEngine.choosePlan(snapshot, role);
+        DecisionPlan selected = result.selectedPlan();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("[Mini][AI] Decision score role={} top={} selected={}",
+                    role, summarizeTopCandidates(result.rankedCandidates(), 3), selected.actionName);
         }
 
-        // Keep current plan; VillagerBody handles lower-level transitions
-        return currentPlan;
+        // TODO(Phase 3): merge village blackboard requests/deliveries into utility factors.
+        return selected;
     }
 
     /** Delegates action execution to the wrapped VillagerBody. */
@@ -257,7 +277,6 @@ public final class VillagerAgentRuntime {
                 }
             }
             case IN_PROGRESS -> {
-                // Normal – log at trace level only
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("[Mini][AI] Action '{}' in progress – tick {}/{}",
                             currentPlan.actionName, planTicks,
@@ -265,5 +284,81 @@ public final class VillagerAgentRuntime {
                 }
             }
         }
+    }
+
+    private void updateRole(VillagerEntity villager) {
+        UUID villagerUuid = villager.getUuid();
+        roleByVillager.computeIfAbsent(villagerUuid, this::assignInitialRole);
+        if (!villagerUuid.equals(currentVillagerUuid)) {
+            currentVillagerUuid = villagerUuid;
+            role = roleByVillager.get(villagerUuid);
+            LOG.debug("[Mini][AI] Role assigned villager={} role={}", villagerUuid, role);
+        }
+    }
+
+    private VillagerRole assignInitialRole(UUID villagerUuid) {
+        int slot = Math.floorMod(villagerUuid.hashCode(), 3);
+        return switch (slot) {
+            case 0 -> VillagerRole.FARMER;
+            case 1 -> VillagerRole.GUARD;
+            default -> VillagerRole.BUILDER;
+        };
+    }
+
+    private static List<BlockPos> scanNearbyBlocks(
+            ServerWorld world,
+            BlockPos origin,
+            Predicate<BlockState> predicate) {
+        List<BlockPos> matches = new ArrayList<>();
+        BlockPos.Mutable mutable = new BlockPos.Mutable();
+        outer:
+        for (int dx = -RESOURCE_SCAN_RADIUS; dx <= RESOURCE_SCAN_RADIUS; dx++) {
+            for (int dy = -2; dy <= 4; dy++) {
+                for (int dz = -RESOURCE_SCAN_RADIUS; dz <= RESOURCE_SCAN_RADIUS; dz++) {
+                    BlockPos target = mutable.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
+                    if (predicate.test(world.getBlockState(target))) {
+                        matches.add(target.toImmutable());
+                        if (matches.size() >= MAX_RESOURCE_TARGETS) {
+                            break outer;
+                        }
+                    }
+                }
+            }
+        }
+        return matches;
+    }
+
+    private static double nearestDistance(BlockPos origin, List<BlockPos> blocks) {
+        double nearest = -1.0;
+        for (BlockPos pos : blocks) {
+            double sq = origin.getSquaredDistance(pos);
+            if (nearest < 0 || sq < nearest) {
+                nearest = sq;
+            }
+        }
+        return nearest < 0 ? -1.0 : Math.sqrt(nearest);
+    }
+
+    private static boolean isFoodBlock(BlockState state) {
+        return state.isOf(Blocks.WHEAT)
+                || state.isOf(Blocks.CARROTS)
+                || state.isOf(Blocks.POTATOES)
+                || state.isOf(Blocks.BEETROOTS)
+                || state.isOf(Blocks.MELON)
+                || state.isOf(Blocks.PUMPKIN)
+                || state.isOf(Blocks.SWEET_BERRY_BUSH);
+    }
+
+    private static boolean isWoodBlock(BlockState state) {
+        return state.isIn(BlockTags.LOGS);
+    }
+
+    private static String summarizeTopCandidates(List<UtilityDecisionEngine.ScoredCandidate> ranked, int max) {
+        int count = Math.min(max, ranked.size());
+        List<String> out = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            out.add(ranked.get(i).summary());
+        }
+        return out.toString();
     }
 }

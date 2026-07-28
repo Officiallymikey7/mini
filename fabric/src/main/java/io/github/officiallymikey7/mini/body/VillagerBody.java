@@ -41,6 +41,15 @@ public final class VillagerBody {
     private static final int RESOURCE_RADIUS = 14;
     private static final int HOSTILE_RADIUS = 12;
 
+    /** Ticks before a cached gather-food target is considered stale and re-scanned. */
+    private static final int GATHER_FOOD_TARGET_TTL = 200;
+
+    /** Maximum times gather_food may fail to find a target before giving up. */
+    private static final int GATHER_FOOD_MAX_RETRIES = 4;
+
+    /** Ticks spent at the same position before gather_food's no-progress detector fires. */
+    private static final int GATHER_FOOD_NO_PROGRESS_THRESHOLD = 60;
+
     private final String ownerUuid;
 
     private UUID villagerUuid;
@@ -51,6 +60,16 @@ public final class VillagerBody {
     private String activeAction;
     private BlockPos actionTarget;
     private int actionTicks;
+
+    // ── Gather-food action state ──────────────────────────────────────────────
+    /** Countdown (in ticks) before the current gather-food target is discarded. */
+    private int gatherFoodTargetTtl;
+    /** Number of consecutive times gather_food has failed to find a food block. */
+    private int gatherFoodRetries;
+    /** Ticks we have been at (nearly) the same position during gather_food. */
+    private int gatherFoodNoProgressTicks;
+    /** Our position at the start of the current gather_food no-progress window. */
+    private Vec3d gatherFoodLastProgress;
 
     private int woodStock;
     private int foodStock;
@@ -93,13 +112,17 @@ public final class VillagerBody {
            villager.setCustomNameVisible(false);
            LOG.info("[Mini] Released VillagerBody {} for agent {}", villagerUuid, ownerUuid);
        }
-       villagerUuid     = null;
-       villagerWorldKey = null;
-       lastPos          = null;
-       stuckCounter     = 0;
-       activeAction     = null;
-       actionTarget     = null;
-       actionTicks      = 0;
+       villagerUuid                = null;
+       villagerWorldKey            = null;
+       lastPos                     = null;
+       stuckCounter                = 0;
+       activeAction                = null;
+       actionTarget                = null;
+       actionTicks                 = 0;
+       gatherFoodRetries           = 0;
+       gatherFoodTargetTtl         = 0;
+       gatherFoodNoProgressTicks   = 0;
+       gatherFoodLastProgress      = null;
     }
 
     public void tick(ServerPlayerEntity player) {
@@ -148,6 +171,11 @@ public final class VillagerBody {
        activeAction = action;
        actionTarget = null;
        actionTicks = 0;
+       // Reset gather-food specific counters on action change
+       gatherFoodRetries        = 0;
+       gatherFoodTargetTtl      = 0;
+       gatherFoodNoProgressTicks = 0;
+       gatherFoodLastProgress   = null;
        return "Started action: " + action;
     }
 
@@ -214,6 +242,10 @@ public final class VillagerBody {
        if (activeAction == null) return;
 
        actionTicks++;
+
+       if (LOG.isDebugEnabled() && actionTicks % 40 == 1) {
+           LOG.debug("[Mini][AI] action='{}' target={} ticks={}", activeAction, actionTarget, actionTicks);
+       }
 
        switch (activeAction) {
            case "explore" -> runExplore(body);
@@ -295,19 +327,82 @@ public final class VillagerBody {
     }
 
     private void runGatherFood(ServerWorld world, VillagerEntity body) {
-       if (actionTarget == null || !isFoodBlock(world.getBlockState(actionTarget))) {
-           actionTarget = findNearestBlock(world, body.getBlockPos(), RESOURCE_RADIUS, -2, 3, VillagerBody::isFoodBlock);
-           if (actionTarget == null) {
-               runExplore(body);
-               return;
+       // ── 1. Target TTL: discard stale target ──────────────────────────────
+       if (actionTarget != null) {
+           gatherFoodTargetTtl--;
+           if (gatherFoodTargetTtl <= 0 || !isFoodBlock(world.getBlockState(actionTarget))) {
+               // Target expired or the block is gone (harvested/trampled)
+               LOG.debug("[Mini][AI] gather_food: target {} invalid/expired – rescanning", actionTarget);
+               actionTarget = null;
            }
        }
 
+       // ── 2. Target selection ──────────────────────────────────────────────
+       if (actionTarget == null) {
+           actionTarget = findNearestBlock(world, body.getBlockPos(), RESOURCE_RADIUS, -2, 3, VillagerBody::isFoodBlock);
+           if (actionTarget == null) {
+               gatherFoodRetries++;
+               LOG.debug("[Mini][AI] gather_food: NO_TARGET – retry {}/{}", gatherFoodRetries, GATHER_FOOD_MAX_RETRIES);
+
+               if (gatherFoodRetries >= GATHER_FOOD_MAX_RETRIES) {
+                   // Give up foraging; fall back to explore so the villager
+                   // moves to a new area rather than oscillating in place.
+                   LOG.warn("[Mini][AI] gather_food: giving up after {} retries (NO_TARGET) – switching to explore",
+                           GATHER_FOOD_MAX_RETRIES);
+                   activeAction    = "explore";
+                   actionTarget    = null;
+                   actionTicks     = 0;
+                   gatherFoodRetries = 0;
+                   gatherFoodNoProgressTicks = 0;
+                   gatherFoodLastProgress    = null;
+               } else {
+                   // Wander briefly then try again next tick cycle
+                   runExplore(body);
+               }
+               return;
+           }
+
+           // Fresh target found – reset TTL and no-progress tracking
+           gatherFoodTargetTtl      = GATHER_FOOD_TARGET_TTL;
+           gatherFoodNoProgressTicks = 0;
+           gatherFoodLastProgress   = body.getPos();
+           LOG.debug("[Mini][AI] gather_food: target selected {} (retry {})", actionTarget, gatherFoodRetries);
+       }
+
+       // ── 3. No-progress (stuck) detection ────────────────────────────────
+       Vec3d currentPos = body.getPos();
+       if (gatherFoodLastProgress != null && currentPos.distanceTo(gatherFoodLastProgress) < 0.05) {
+           gatherFoodNoProgressTicks++;
+           if (gatherFoodNoProgressTicks >= GATHER_FOOD_NO_PROGRESS_THRESHOLD) {
+               LOG.warn("[Mini][AI] gather_food: STUCK at {} for {} ticks – discarding target",
+                       actionTarget, gatherFoodNoProgressTicks);
+               actionTarget              = null;
+               gatherFoodTargetTtl       = 0;
+               gatherFoodNoProgressTicks = 0;
+               gatherFoodLastProgress    = null;
+               gatherFoodRetries++;
+               return;
+           }
+       } else {
+           // Made progress – reset no-progress counter
+           gatherFoodNoProgressTicks = 0;
+           gatherFoodLastProgress    = currentPos;
+       }
+
+       // ── 4. Move toward target ────────────────────────────────────────────
        moveTo(body, actionTarget, WALK_SPEED);
+
+       // ── 5. Harvest on arrival ────────────────────────────────────────────
        if (isNear(body, actionTarget, 1.8) && isFoodBlock(world.getBlockState(actionTarget))) {
            world.breakBlock(actionTarget, false);
            foodStock++;
-           actionTarget = null;
+           LOG.debug("[Mini][AI] gather_food: harvested {} – foodStock={}", actionTarget, foodStock);
+           // Reset target and retry counter on success
+           actionTarget              = null;
+           gatherFoodTargetTtl       = 0;
+           gatherFoodRetries         = 0;
+           gatherFoodNoProgressTicks = 0;
+           gatherFoodLastProgress    = null;
        }
     }
 

@@ -233,7 +233,7 @@ public final class Planner {
                 + "Role: " + role.getLabel() + " | Traits: " + traits + "\n"
                 + "Community Goal: " + input.communityGoal + "\n"
                 + "Mastered Skills: " + masteredSkillsList + "\n"
-                + "Last Action Status: " + recentFailures + " (recent failures)\n\n"
+                + "Recent failures: " + recentFailures + "\n\n"
                 + "[Self-Reflection Block]\n"
                 + input.reflection.summary + "\n\n"
                 + "[Social Horizon Block]\n"

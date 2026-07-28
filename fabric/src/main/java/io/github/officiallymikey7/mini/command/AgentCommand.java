@@ -68,7 +68,7 @@ public final class AgentCommand {
     /**
      * Called every server tick by {@link io.github.officiallymikey7.mini.MiniMod}.
      * <ul>
-     *   <li>Drives the Villager body movement on <em>every</em> tick for smooth following.</li>
+     *   <li>Drives villager action runtime on <em>every</em> tick.</li>
      *   <li>Executes one agent logic tick every {@value #AGENT_TICK_INTERVAL} game ticks.</li>
      * </ul>
      */
@@ -76,7 +76,7 @@ public final class AgentCommand {
         for (Map.Entry<String, ActiveEntry> entry : ACTIVE_AGENTS.entrySet()) {
             ActiveEntry e = entry.getValue();
 
-            // Body movement runs every server tick for smooth in-world following
+            // Body task runtime runs every server tick
             try {
                 e.body.tick(e.player);
             } catch (Exception ex) {

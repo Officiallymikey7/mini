@@ -87,14 +87,16 @@ public final class VillagerBody {
 
        ServerWorld world = player.getServerWorld();
        var entity = world.getEntity(villagerUuid);
-        if (entity != null) {
-            entity.discard();
-            LOG.info("[Mini] Despawned VillagerBody {} for agent {}", villagerUuid, ownerUuid);
-        }
-        villagerUuid     = null;
-        villagerWorldKey = null;
-        lastPos          = null;
-        stuckCounter     = 0;
+       if (entity instanceof VillagerEntity villager) {
+           villager.getNavigation().stop();
+           villager.setCustomName(null);
+           villager.setCustomNameVisible(false);
+           LOG.info("[Mini] Released VillagerBody {} for agent {}", villagerUuid, ownerUuid);
+       }
+       villagerUuid     = null;
+       villagerWorldKey = null;
+       lastPos          = null;
+       stuckCounter     = 0;
        activeAction     = null;
        actionTarget     = null;
        actionTicks      = 0;
@@ -108,9 +110,9 @@ public final class VillagerBody {
        if (body == null) return;
 
        if (hasImmediateDanger(player.getServerWorld(), body)
-               && activeAction != null
-               && !activeAction.equals("flee_to_shelter")
-               && !activeAction.equals("attack_nearest_hostile")) {
+               && (activeAction == null
+               || (!activeAction.equals("flee_to_shelter")
+               && !activeAction.equals("attack_nearest_hostile")))) {
            activeAction = "flee_to_shelter";
            actionTarget = null;
            actionTicks = 0;
@@ -373,7 +375,7 @@ public final class VillagerBody {
        BlockPos bed = findNearestBlock(world, origin, radius, -3, 4, state -> state.isIn(BlockTags.BEDS));
        if (bed != null) return bed;
 
-       return findNearestBlock(world, origin, radius, -2, 4, state -> !state.isAir() && !world.isSkyVisible(origin.up()));
+       return findNearestCoveredPosition(world, origin, radius);
     }
 
     private static BlockPos findNearestBlock(
@@ -393,6 +395,28 @@ public final class VillagerBody {
                    mutable.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
                    BlockState state = world.getBlockState(mutable);
                    if (!predicate.test(state)) continue;
+
+                   double dist = origin.getSquaredDistance(mutable);
+                   if (dist < bestDist) {
+                       bestDist = dist;
+                       best = mutable.toImmutable();
+                   }
+               }
+           }
+       }
+       return best;
+    }
+
+    private static BlockPos findNearestCoveredPosition(ServerWorld world, BlockPos origin, int radius) {
+       BlockPos best = null;
+       double bestDist = Double.MAX_VALUE;
+       BlockPos.Mutable mutable = new BlockPos.Mutable();
+       for (int dx = -radius; dx <= radius; dx++) {
+           for (int dy = -3; dy <= 4; dy++) {
+               for (int dz = -radius; dz <= radius; dz++) {
+                   mutable.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
+                   if (world.getBlockState(mutable).isAir()) continue;
+                   if (world.isSkyVisible(mutable.up())) continue;
 
                    double dist = origin.getSquaredDistance(mutable);
                    if (dist < bestDist) {

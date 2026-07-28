@@ -7,8 +7,6 @@ import net.minecraft.block.BlockState;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.passive.VillagerEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -22,11 +20,11 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Fabric / Minecraft adapter that reads live world state from a
- * {@link ServerPlayerEntity} and dispatches simple actions via the server API.
+ * Fabric / Minecraft adapter that reads live world state from a controlled
+ * villager body and dispatches actions into its autonomous runtime.
  *
- * <p>This adapter is intentionally kept simple: it reads common player stats and
- * performs actions by sending chat commands or adjusting player state directly.
+ * <p>This adapter is intentionally kept simple: it reads common villager stats and
+ * delegates action execution to {@link VillagerBody}.
  * Extend or replace for richer behaviour (pathfinding, crafting, etc.).
  *
  * <p><b>Thread safety:</b> Call {@link #getWorldState()} and

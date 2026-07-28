@@ -2,17 +2,22 @@ package io.github.officiallymikey7.mini.integration;
 
 import io.github.officiallymikey7.mini.core.HostileEntity;
 import io.github.officiallymikey7.mini.core.InventoryItem;
+import net.minecraft.block.BlockState;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Fabric / Minecraft adapter that reads live world state from a
@@ -31,7 +36,29 @@ public final class FabricWorldAdapter implements BotAdapter {
     /** Detection radius for nearby mobs and shelter checks. */
     private static final double DETECTION_RADIUS = 24.0;
 
+    /**
+     * Block types considered structurally trivial; excluded from the
+     * nearby-blocks list to keep the agent context focused on items of interest.
+     */
+    private static final Set<String> TRIVIAL_BLOCKS = Set.of(
+            "air", "cave_air", "void_air", "grass_block", "dirt", "stone",
+            "deepslate", "sand", "gravel", "grass", "short_grass");
+
+    /** Maximum distinct block types reported in the nearby-blocks list. */
+    private static final int MAX_NEARBY_BLOCKS = 10;
+
+    /** Scan radius (in blocks) for the nearby-blocks survey. */
+    private static final int NEARBY_BLOCK_RADIUS = 6;
+
+    /** Refresh interval for the nearby-blocks cache (ticks). 20 = once per second at 20 TPS. */
+    private static final int NEARBY_BLOCKS_CACHE_INTERVAL = 20;
+
     private final ServerPlayerEntity player;
+
+    /** Cached result of the last nearby-blocks scan. */
+    private List<String> cachedNearbyBlocks = List.of();
+    /** Game tick at which the cache was last populated. */
+    private long cachedNearbyBlocksTick = -NEARBY_BLOCKS_CACHE_INTERVAL;
 
     public FabricWorldAdapter(ServerPlayerEntity player) {
         this.player = player;
@@ -45,6 +72,7 @@ public final class FabricWorldAdapter implements BotAdapter {
 
         // --- time ---
         int gameTick = (int) (world.getTimeOfDay() % 24000);
+        long worldTime = world.getTimeOfDay(); // monotonically increasing; used for cache tracking
 
         // --- health / hunger ---
         float health = player.getHealth();
@@ -77,6 +105,21 @@ public final class FabricWorldAdapter implements BotAdapter {
         List<String> chat = List.copyOf(pendingChat);
         pendingChat.clear();
 
+        // --- spatial context ---
+        double posX = player.getX();
+        double posY = player.getY();
+        double posZ = player.getZ();
+        int lightLevel = world.getLightLevel(player.getBlockPos());
+        String biome = world.getBiome(player.getBlockPos())
+                .getKey()
+                .map(k -> k.getValue().getPath())
+                .orElse("unknown");
+        String mainHandItem = Registries.ITEM
+                .getId(player.getMainHandStack().getItem()).getPath();
+        String offHandItem = Registries.ITEM
+                .getId(player.getOffHandStack().getItem()).getPath();
+        List<String> nearbyBlocks = getNearbyBlocksCached(worldTime, world);
+
         return new RawWorldState(
                 player.getName().getString(),
                 gameTick,
@@ -86,7 +129,15 @@ public final class FabricWorldAdapter implements BotAdapter {
                 inventory,
                 shelterDistance,
                 hasShelter,
-                chat);
+                chat,
+                posX,
+                posY,
+                posZ,
+                lightLevel,
+                biome,
+                mainHandItem,
+                offHandItem,
+                nearbyBlocks);
     }
 
     @Override
@@ -120,5 +171,52 @@ public final class FabricWorldAdapter implements BotAdapter {
     /** Inject a chat message for inclusion in the next world-state snapshot. */
     public void injectChat(String senderName, String message) {
         pendingChat.add(senderName + ": " + message);
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Returns the nearby-blocks list, refreshing the cache at most once every
+     * {@value #NEARBY_BLOCKS_CACHE_INTERVAL} ticks to avoid scanning ~1 183 block states
+     * on every agent tick.
+     */
+    private List<String> getNearbyBlocksCached(long currentTick, ServerWorld world) {
+        if (currentTick - cachedNearbyBlocksTick >= NEARBY_BLOCKS_CACHE_INTERVAL) {
+            cachedNearbyBlocks = scanNearbyBlocks(player, world);
+            cachedNearbyBlocksTick = currentTick;
+        }
+        return cachedNearbyBlocks;
+    }
+
+    /**
+     * Scans a small cube around the player and returns up to
+     * {@value #MAX_NEARBY_BLOCKS} distinct non-trivial block-type names.
+     * The scan intentionally excludes common terrain blocks (dirt, stone, grass)
+     * so the list highlights blocks that are strategically relevant to the agent
+     * (logs, ores, water, chests, crafting tables, etc.).
+     *
+     * <p>Uses a single mutable {@link BlockPos.Mutable} to avoid per-iteration allocations.
+     */
+    private static List<String> scanNearbyBlocks(ServerPlayerEntity player, ServerWorld world) {
+        BlockPos origin = player.getBlockPos();
+        Set<String> seen = new LinkedHashSet<>();
+        int r = NEARBY_BLOCK_RADIUS;
+        BlockPos.Mutable mutable = new BlockPos.Mutable();
+        outer:
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dy = -2; dy <= 4; dy++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (seen.size() >= MAX_NEARBY_BLOCKS) break outer;
+                    BlockState state = world.getBlockState(mutable.set(origin, dx, dy, dz));
+                    if (!state.isAir()) {
+                        String name = Registries.BLOCK.getId(state.getBlock()).getPath();
+                        if (!TRIVIAL_BLOCKS.contains(name)) {
+                            seen.add(name);
+                        }
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(seen);
     }
 }

@@ -1,9 +1,11 @@
 package io.github.officiallymikey7.mini.memory;
 
 import io.github.officiallymikey7.mini.core.ExecutionOutcome;
+import io.github.officiallymikey7.mini.core.ExecutionStatus;
 import io.github.officiallymikey7.mini.core.InventoryItem;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +19,16 @@ public final class ReflectionMemory {
 
     private static final int MAX_ENTRIES = 10;
 
+    /**
+     * Number of successful executions of the same action required before it is
+     * considered "mastered" and added to the mastered-skills list.
+     */
+    public static final int MASTERY_THRESHOLD = 3;
+
     private final List<ReflectionEntry> entries = new ArrayList<>();
+
+    /** Cumulative success counts per action name. */
+    private final Map<String, Integer> successCounts = new HashMap<>();
 
     /** Record the outcome of one execution cycle. */
     public void record(int tick, ExecutionOutcome outcome, List<InventoryItem> currentInventory) {
@@ -25,12 +36,21 @@ public final class ReflectionMemory {
         if (entries.size() > MAX_ENTRIES) {
             entries.subList(0, entries.size() - MAX_ENTRIES).clear();
         }
+        if (outcome.status == ExecutionStatus.SUCCESS) {
+            successCounts.merge(outcome.action, 1, Integer::sum);
+        }
     }
 
     /** Build the [Self-Reflection Block] summary string. */
     public ReflectionBlock build() {
+        List<String> masteredSkills = successCounts.entrySet().stream()
+                .filter(e -> e.getValue() >= MASTERY_THRESHOLD)
+                .map(Map.Entry::getKey)
+                .sorted()
+                .collect(Collectors.toList());
+
         if (entries.isEmpty()) {
-            return new ReflectionBlock("No previous actions recorded yet.", List.of());
+            return new ReflectionBlock("No previous actions recorded yet.", List.of(), masteredSkills);
         }
 
         List<String> lines = new ArrayList<>();
@@ -65,7 +85,7 @@ public final class ReflectionMemory {
             lines.add("Recent mistakes / failed actions: " + actions);
         }
 
-        return new ReflectionBlock(String.join("\n", lines), List.copyOf(entries));
+        return new ReflectionBlock(String.join("\n", lines), List.copyOf(entries), masteredSkills);
     }
 
     private static List<String> computeInventoryDelta(

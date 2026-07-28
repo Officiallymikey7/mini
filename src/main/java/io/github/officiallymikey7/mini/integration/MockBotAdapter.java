@@ -26,6 +26,14 @@ public final class MockBotAdapter implements BotAdapter {
     private int shelterDistance;
     private boolean hasShelter;
     private List<String> nearbyChat;
+    private double x;
+    private double y;
+    private double z;
+    private int lightLevel;
+    private String biome;
+    private String mainHandItem;
+    private String offHandItem;
+    private List<String> nearbyBlocks;
 
     /** Chronological log of all actions performed. */
     public final List<ActionRecord> actionLog = new ArrayList<>();
@@ -53,6 +61,14 @@ public final class MockBotAdapter implements BotAdapter {
         this.shelterDistance = config.shelterDistance;
         this.hasShelter      = config.hasShelter;
         this.nearbyChat      = new ArrayList<>(config.nearbyChat);
+        this.x               = config.x;
+        this.y               = config.y;
+        this.z               = config.z;
+        this.lightLevel      = config.lightLevel;
+        this.biome           = config.biome;
+        this.mainHandItem    = config.mainHandItem;
+        this.offHandItem     = config.offHandItem;
+        this.nearbyBlocks    = new ArrayList<>(config.nearbyBlocks);
     }
 
     // ── BotAdapter ───────────────────────────────────────────────────────────
@@ -61,7 +77,9 @@ public final class MockBotAdapter implements BotAdapter {
     public RawWorldState getWorldState() {
         return new RawWorldState(agentName, gameTick, health, hunger,
                 List.copyOf(nearbyHostiles), List.copyOf(inventory),
-                shelterDistance, hasShelter, List.copyOf(nearbyChat));
+                shelterDistance, hasShelter, List.copyOf(nearbyChat),
+                x, y, z, lightLevel, biome, mainHandItem, offHandItem,
+                List.copyOf(nearbyBlocks));
     }
 
     @Override
@@ -89,6 +107,12 @@ public final class MockBotAdapter implements BotAdapter {
     public void setNearbyHostiles(List<HostileEntity> hostiles)    { this.nearbyHostiles = new ArrayList<>(hostiles); }
     public void setInventory(List<InventoryItem> inventory)        { this.inventory = new ArrayList<>(inventory); }
     public void setNearbyChat(List<String> chat)                   { this.nearbyChat = new ArrayList<>(chat); }
+    public void setPosition(double x, double y, double z)          { this.x = x; this.y = y; this.z = z; }
+    public void setLightLevel(int lightLevel)                      { this.lightLevel = lightLevel; }
+    public void setBiome(String biome)                             { this.biome = biome; }
+    public void setMainHandItem(String item)                       { this.mainHandItem = item; }
+    public void setOffHandItem(String item)                        { this.offHandItem = item; }
+    public void setNearbyBlocks(List<String> blocks)               { this.nearbyBlocks = new ArrayList<>(blocks); }
 
     // ── Simulation internals ─────────────────────────────────────────────────
 
@@ -161,6 +185,14 @@ public final class MockBotAdapter implements BotAdapter {
         public int     shelterDistance = 0;
         public boolean hasShelter      = true;
         public List<String> nearbyChat = List.of();
+        public double  x               = 0.0;
+        public double  y               = 64.0;
+        public double  z               = 0.0;
+        public int     lightLevel      = 15;
+        public String  biome           = "plains";
+        public String  mainHandItem    = "air";
+        public String  offHandItem     = "air";
+        public List<String> nearbyBlocks = List.of();
     }
 
     /** A single entry in the action log. */

@@ -38,7 +38,8 @@ class PlannerTest {
                              boolean hasTools, List<HostileEntity> hostiles, List<InventoryItem> inv) {
         return new WorldState("Arlo", 6000, isNight, health, hunger,
                 hostiles, inv, 0, hasShelter, hasTools, List.of(),
-                System.currentTimeMillis());
+                System.currentTimeMillis(),
+                0.0, 64.0, 0.0, 15, "plains", "air", "air", List.of());
     }
 
     private PlannerInput input(WorldState s) {
@@ -183,5 +184,45 @@ class PlannerTest {
         PlannerOutput out = Planner.plan(input(s));
         assertTrue(out.promptContext.contains("[Self-Reflection Block]"),
                 "Prompt context should include the reflection block header");
+    }
+
+    @Test
+    void promptContextContainsJsonSchema() {
+        WorldState s = state(20, 18, false, true, true, List.of(), List.of());
+        PlannerOutput out = Planner.plan(input(s));
+        assertTrue(out.promptContext.contains("\"reasoning\""),
+                "Prompt context should include the JSON schema 'reasoning' field");
+        assertTrue(out.promptContext.contains("\"subgoal_type\""),
+                "Prompt context should include the JSON schema 'subgoal_type' field");
+        assertTrue(out.promptContext.contains("\"action\""),
+                "Prompt context should include the JSON schema 'action' field");
+        assertTrue(out.promptContext.contains("\"priority\""),
+                "Prompt context should include the JSON schema 'priority' field");
+    }
+
+    @Test
+    void promptContextContainsSpatialState() {
+        WorldState s = state(20, 18, false, true, true, List.of(), List.of());
+        PlannerOutput out = Planner.plan(input(s));
+        assertTrue(out.promptContext.contains("Position:"),
+                "Prompt context should include position");
+        assertTrue(out.promptContext.contains("Light Level:"),
+                "Prompt context should include light level");
+        assertTrue(out.promptContext.contains("Biome:"),
+                "Prompt context should include biome");
+        assertTrue(out.promptContext.contains("Main Hand:"),
+                "Prompt context should include main hand item");
+        assertTrue(out.promptContext.contains("Nearby Blocks of Interest:"),
+                "Prompt context should include nearby blocks section");
+    }
+
+    @Test
+    void promptContextContainsMasteryMemory() {
+        WorldState s = state(20, 18, false, true, true, List.of(), List.of());
+        PlannerOutput out = Planner.plan(input(s));
+        assertTrue(out.promptContext.contains("Mastered Skills:"),
+                "Prompt context should include mastered skills");
+        assertTrue(out.promptContext.contains("Recent failures:"),
+                "Prompt context should include recent failures");
     }
 }

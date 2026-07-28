@@ -37,6 +37,12 @@ public final class PerceptionSnapshot {
 
     /** {@code true} when it is night-time in the world. */
     public final boolean isNight;
+    /** Distance to nearest hostile entity, or -1 if none. */
+    public final double nearestHostileDistance;
+    /** Distance to nearest food block, or -1 if none. */
+    public final double nearestFoodDistance;
+    /** Distance to nearest wood block, or -1 if none. */
+    public final double nearestWoodDistance;
 
     public PerceptionSnapshot(
             LivingEntity nearestHostile,
@@ -46,7 +52,10 @@ public final class PerceptionSnapshot {
             float health,
             int foodStock,
             int woodStock,
-            boolean isNight) {
+            boolean isNight,
+            double nearestHostileDistance,
+            double nearestFoodDistance,
+            double nearestWoodDistance) {
         this.nearestHostile  = nearestHostile;
         this.nearbyFoodBlocks = Collections.unmodifiableList(nearbyFoodBlocks);
         this.nearbyWoodBlocks = Collections.unmodifiableList(nearbyWoodBlocks);
@@ -55,6 +64,9 @@ public final class PerceptionSnapshot {
         this.foodStock       = foodStock;
         this.woodStock       = woodStock;
         this.isNight         = isNight;
+        this.nearestHostileDistance = nearestHostileDistance;
+        this.nearestFoodDistance = nearestFoodDistance;
+        this.nearestWoodDistance = nearestWoodDistance;
     }
 
     /** {@code true} if any hostile entity is perceived. */
@@ -76,6 +88,9 @@ public final class PerceptionSnapshot {
                 + ", health=" + health
                 + ", foodStock=" + foodStock
                 + ", woodStock=" + woodStock
-                + ", night=" + isNight + '}';
+                + ", night=" + isNight
+                + ", hostileDist=" + nearestHostileDistance
+                + ", foodDist=" + nearestFoodDistance
+                + ", woodDist=" + nearestWoodDistance + '}';
     }
 }

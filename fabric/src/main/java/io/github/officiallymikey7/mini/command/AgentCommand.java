@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import io.github.officiallymikey7.mini.agent.Agent;
 import io.github.officiallymikey7.mini.agent.AgentConfig;
+import io.github.officiallymikey7.mini.body.VillagerBody;
 import io.github.officiallymikey7.mini.integration.FabricWorldAdapter;
 import io.github.officiallymikey7.mini.roles.RoleRegistry;
 import net.minecraft.server.command.CommandManager;
@@ -64,11 +65,23 @@ public final class AgentCommand {
 
     /**
      * Called every server tick by {@link io.github.officiallymikey7.mini.MiniMod}.
-     * Executes one agent tick every {@value #AGENT_TICK_INTERVAL} game ticks.
+     * <ul>
+     *   <li>Drives the Villager body movement on <em>every</em> tick for smooth following.</li>
+     *   <li>Executes one agent logic tick every {@value #AGENT_TICK_INTERVAL} game ticks.</li>
+     * </ul>
      */
     public static void tickActiveAgents() {
         for (Map.Entry<String, ActiveEntry> entry : ACTIVE_AGENTS.entrySet()) {
             ActiveEntry e = entry.getValue();
+
+            // Body movement runs every server tick for smooth in-world following
+            try {
+                e.body.tick(e.player);
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+
+            // Agent logic runs at the slower AGENT_TICK_INTERVAL cadence
             e.gameTickCounter++;
             if (e.gameTickCounter >= AGENT_TICK_INTERVAL) {
                 e.gameTickCounter = 0;
@@ -106,7 +119,10 @@ public final class AgentCommand {
         AgentConfig config = AgentConfig.builder(player.getName().getString(), roleId).build();
         Agent agent = new Agent(adapter, config);
 
-        ACTIVE_AGENTS.put(uuid, new ActiveEntry(agent, adapter));
+        VillagerBody body = new VillagerBody(uuid);
+        body.ensureSpawned(player);
+
+        ACTIVE_AGENTS.put(uuid, new ActiveEntry(agent, adapter, player, body));
         source.sendFeedback(() ->
                 Text.of("§a[Mini] Agent started as role: " + roleId + ". Use /mini stop to stop."), false);
         return 1;
@@ -117,7 +133,9 @@ public final class AgentCommand {
         if (player == null) return 0;
 
         String uuid = player.getUuid().toString();
-        if (ACTIVE_AGENTS.remove(uuid) != null) {
+        ActiveEntry removed = ACTIVE_AGENTS.remove(uuid);
+        if (removed != null) {
+            removed.body.despawn(removed.player);
             source.sendFeedback(() -> Text.of("§a[Mini] Agent stopped."), false);
             return 1;
         }
@@ -157,13 +175,17 @@ public final class AgentCommand {
     // ── Internal helper ──────────────────────────────────────────────────────
 
     private static final class ActiveEntry {
-        final Agent             agent;
+        final Agent              agent;
         final FabricWorldAdapter adapter;
+        final ServerPlayerEntity player;
+        final VillagerBody       body;
         int gameTickCounter = 0;
 
-        ActiveEntry(Agent agent, FabricWorldAdapter adapter) {
+        ActiveEntry(Agent agent, FabricWorldAdapter adapter, ServerPlayerEntity player, VillagerBody body) {
             this.agent   = agent;
             this.adapter = adapter;
+            this.player  = player;
+            this.body    = body;
         }
     }
 }

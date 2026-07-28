@@ -38,7 +38,8 @@ class PlannerTest {
                              boolean hasTools, List<HostileEntity> hostiles, List<InventoryItem> inv) {
         return new WorldState("Arlo", 6000, isNight, health, hunger,
                 hostiles, inv, 0, hasShelter, hasTools, List.of(),
-                System.currentTimeMillis());
+                System.currentTimeMillis(),
+                0.0, 64.0, 0.0, 15, "plains", "air", "air", List.of());
     }
 
     private PlannerInput input(WorldState s) {

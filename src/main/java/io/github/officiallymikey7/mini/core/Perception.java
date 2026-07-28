@@ -48,6 +48,14 @@ public final class Perception {
                 raw.hasShelter,
                 hasTools,
                 raw.nearbyChat,
-                System.currentTimeMillis());
+                System.currentTimeMillis(),
+                raw.x,
+                raw.y,
+                raw.z,
+                raw.lightLevel,
+                raw.biome,
+                raw.mainHandItem,
+                raw.offHandItem,
+                raw.nearbyBlocks);
     }
 }

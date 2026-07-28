@@ -21,7 +21,8 @@ class NeedsTest {
                                     List<InventoryItem> inv, int shelterDist) {
         return new WorldState("Tester", 6000, isNight, health, hunger,
                 hostiles, inv, shelterDist, hasShelter, hasTools, List.of(),
-                System.currentTimeMillis());
+                System.currentTimeMillis(),
+                0.0, 64.0, 0.0, 15, "plains", "air", "air", List.of());
     }
 
     // ── Basic scoring ─────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Hierarchical planner:
@@ -147,31 +148,105 @@ public final class Planner {
     // ── Subgoal prompt builder ───────────────────────────────────────────────
 
     /**
-     * Builds the template-based subgoal description used for debugging / LLM prompts.
+     * Builds the structured decision prompt injected into every planner cycle.
+     *
+     * <p>The prompt addresses three operational bottlenecks:
+     * <ol>
+     *   <li><b>Structured output</b> – the agent is told to reply with a strict JSON
+     *       schema so the Java executor can parse the response without prose
+     *       interpretation.</li>
+     *   <li><b>Spatial context</b> – position, light level, biome, equipped items, and
+     *       nearby blocks are included so the agent can make spatially-aware
+     *       decisions (e.g. detect a hostile 4 blocks away before choosing to chop
+     *       a tree).</li>
+     *   <li><b>Mastery memory</b> – a list of already-mastered actions is embedded so
+     *       the agent does not keep re-selecting goals it has already achieved.</li>
+     * </ol>
      */
     public static String buildSubgoalPrompt(PlannerInput input) {
-        WorldState state = input.state;
+        WorldState    state = input.state;
         RoleDefinition role = input.role;
+
         String traits = role.getTraits().isEmpty()
                 ? "resourceful"
                 : String.join(", ", role.getTraits());
 
-        return "Suppose you are the person, " + state.agentName + ", described below.\n"
-                + "Your goal is: " + input.communityGoal + ".\n"
-                + "You need to find one subgoal aligned with your goal based on your identity,\n"
-                + "traits, current situation, and the observed behaviour of others.\n\n"
-                + "Identity: " + role.getLabel() + "\n"
-                + "Traits: " + traits + "\n\n"
+        // ── Mastered skills ──────────────────────────────────────────────────
+        String masteredSkillsList = input.reflection.masteredSkills.isEmpty()
+                ? "none"
+                : String.join(", ", input.reflection.masteredSkills);
+
+        // ── Recent failures ──────────────────────────────────────────────────
+        String recentFailures = input.reflection.entries.stream()
+                .filter(e -> e.status.equals("failure") || e.status.equals("timeout"))
+                .map(e -> e.action)
+                .distinct()
+                .collect(Collectors.joining(", "));
+        if (recentFailures.isEmpty()) recentFailures = "none";
+
+        // ── JSON serialisation of complex fields ─────────────────────────────
+        String inventoryJson = state.inventory.isEmpty()
+                ? "[]"
+                : state.inventory.stream()
+                        .map(i -> "{\"item\":\"" + i.name + "\",\"count\":" + i.count + "}")
+                        .collect(Collectors.joining(",", "[", "]"));
+
+        String nearbyMobsJson = state.nearbyHostiles.isEmpty()
+                ? "[]"
+                : state.nearbyHostiles.stream()
+                        .map(h -> "{\"type\":\"" + h.type
+                                + "\",\"distance\":" + String.format("%.1f", h.distance) + "}")
+                        .collect(Collectors.joining(",", "[", "]"));
+
+        String nearbyBlocksJson = state.nearbyBlocks.isEmpty()
+                ? "[]"
+                : state.nearbyBlocks.stream()
+                        .map(b -> "\"" + b + "\"")
+                        .collect(Collectors.joining(",", "[", "]"));
+
+        return "You are an autonomous Minecraft Fabric AI agent operating in a real-time world.\n"
+                + "Your core objective is to explore, survive, gather resources, and build a skill\n"
+                + "library without human assistance.\n\n"
+                + "RULES:\n"
+                + "1. Always prioritise immediate survival (low health, nearby hostiles, nightfall)"
+                + " over long-term goals.\n"
+                + "2. Output MUST be valid JSON matching the schema shown in the TASK section.\n"
+                + "3. Do not attempt goals listed in 'mastered_skills' unless required for basic"
+                + " survival.\n"
+                + "4. If an action continuously fails, select an alternative strategy.\n\n"
+                + "=== REAL-TIME STATE ===\n"
+                + "Health: " + state.health + "/20 | Hunger: " + (int) state.hunger + "/20\n"
+                + "Position: X=" + String.format("%.1f", state.x)
+                + ", Y=" + String.format("%.1f", state.y)
+                + ", Z=" + String.format("%.1f", state.z) + "\n"
+                + "Biome: " + state.biome
+                + " | Time of Day: " + state.gameTick
+                + " | Night: " + state.isNight + "\n"
+                + "Light Level: " + state.lightLevel + "\n"
+                + "Main Hand: " + state.mainHandItem
+                + " | Off Hand: " + state.offHandItem + "\n"
+                + "Inventory: " + inventoryJson + "\n"
+                + "Nearby Mobs: " + nearbyMobsJson + "\n"
+                + "Nearby Blocks of Interest: " + nearbyBlocksJson + "\n\n"
+                + "=== AGENT MEMORY ===\n"
+                + "Agent: " + state.agentName + "\n"
+                + "Role: " + role.getLabel() + " | Traits: " + traits + "\n"
+                + "Community Goal: " + input.communityGoal + "\n"
+                + "Mastered Skills: " + masteredSkillsList + "\n"
+                + "Last Action Status: " + recentFailures + " (recent failures)\n\n"
                 + "[Self-Reflection Block]\n"
                 + input.reflection.summary + "\n\n"
                 + "[Social Horizon Block]\n"
                 + input.social.summary + "\n\n"
-                + "Current situation:\n"
-                + "  Health: " + state.health + "/20  Hunger: " + state.hunger
-                + "/20  Night: " + state.isNight + "\n"
-                + "  Hostiles nearby: " + state.nearbyHostiles.size()
-                + "  Has shelter: " + state.hasShelter + "\n"
-                + "  Has tools: " + state.hasTools;
+                + "=== TASK ===\n"
+                + "Analyse your state and determine the single most logical immediate subgoal.\n"
+                + "Respond ONLY with a JSON object in this exact format:\n"
+                + "{\n"
+                + "  \"reasoning\": \"<one sentence explaining your choice>\",\n"
+                + "  \"subgoal_type\": \"<EMERGENCY|SOCIAL|ROLE>\",\n"
+                + "  \"action\": \"<action_id>\",\n"
+                + "  \"priority\": <0-100>\n"
+                + "}";
     }
 
     // ── Main entry-point ─────────────────────────────────────────────────────

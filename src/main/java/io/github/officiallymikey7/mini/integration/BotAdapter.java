@@ -44,6 +44,22 @@ public interface BotAdapter {
         public final int shelterDistance;
         public final boolean hasShelter;
         public final List<String> nearbyChat;
+        /** Agent world X coordinate. */
+        public final double x;
+        /** Agent world Y coordinate. */
+        public final double y;
+        /** Agent world Z coordinate. */
+        public final double z;
+        /** Combined block + sky light level at the agent's position (0–15). */
+        public final int lightLevel;
+        /** Biome name at the agent's position (e.g. {@code "plains"}). */
+        public final String biome;
+        /** Item held in the main hand (e.g. {@code "iron_sword"}, {@code "air"} if empty). */
+        public final String mainHandItem;
+        /** Item held in the off hand (e.g. {@code "shield"}, {@code "air"} if empty). */
+        public final String offHandItem;
+        /** Distinct non-trivial block types visible within a short radius. */
+        public final List<String> nearbyBlocks;
 
         public RawWorldState(
                 String agentName,
@@ -54,7 +70,15 @@ public interface BotAdapter {
                 List<InventoryItem> inventory,
                 int shelterDistance,
                 boolean hasShelter,
-                List<String> nearbyChat) {
+                List<String> nearbyChat,
+                double x,
+                double y,
+                double z,
+                int lightLevel,
+                String biome,
+                String mainHandItem,
+                String offHandItem,
+                List<String> nearbyBlocks) {
             this.agentName       = agentName;
             this.gameTick        = gameTick;
             this.health          = health;
@@ -64,6 +88,14 @@ public interface BotAdapter {
             this.shelterDistance = shelterDistance;
             this.hasShelter      = hasShelter;
             this.nearbyChat      = List.copyOf(nearbyChat);
+            this.x               = x;
+            this.y               = y;
+            this.z               = z;
+            this.lightLevel      = lightLevel;
+            this.biome           = biome;
+            this.mainHandItem    = mainHandItem;
+            this.offHandItem     = offHandItem;
+            this.nearbyBlocks    = List.copyOf(nearbyBlocks);
         }
     }
 }

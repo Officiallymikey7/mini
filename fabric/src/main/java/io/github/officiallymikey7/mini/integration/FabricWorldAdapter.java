@@ -2,17 +2,22 @@ package io.github.officiallymikey7.mini.integration;
 
 import io.github.officiallymikey7.mini.core.HostileEntity;
 import io.github.officiallymikey7.mini.core.InventoryItem;
+import net.minecraft.block.BlockState;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Fabric / Minecraft adapter that reads live world state from a
@@ -30,6 +35,20 @@ public final class FabricWorldAdapter implements BotAdapter {
 
     /** Detection radius for nearby mobs and shelter checks. */
     private static final double DETECTION_RADIUS = 24.0;
+
+    /**
+     * Block types considered structurally trivial; excluded from the
+     * nearby-blocks list to keep the agent context focused on items of interest.
+     */
+    private static final Set<String> TRIVIAL_BLOCKS = Set.of(
+            "air", "cave_air", "void_air", "grass_block", "dirt", "stone",
+            "deepslate", "sand", "gravel", "grass", "short_grass");
+
+    /** Maximum distinct block types reported in the nearby-blocks list. */
+    private static final int MAX_NEARBY_BLOCKS = 10;
+
+    /** Scan radius (in blocks) for the nearby-blocks survey. */
+    private static final int NEARBY_BLOCK_RADIUS = 6;
 
     private final ServerPlayerEntity player;
 
@@ -77,6 +96,21 @@ public final class FabricWorldAdapter implements BotAdapter {
         List<String> chat = List.copyOf(pendingChat);
         pendingChat.clear();
 
+        // --- spatial context ---
+        double posX = player.getX();
+        double posY = player.getY();
+        double posZ = player.getZ();
+        int lightLevel = world.getLightLevel(player.getBlockPos());
+        String biome = world.getBiome(player.getBlockPos())
+                .getKey()
+                .map(k -> k.getValue().getPath())
+                .orElse("unknown");
+        String mainHandItem = Registries.ITEM
+                .getId(player.getMainHandStack().getItem()).getPath();
+        String offHandItem = Registries.ITEM
+                .getId(player.getOffHandStack().getItem()).getPath();
+        List<String> nearbyBlocks = scanNearbyBlocks(player, world);
+
         return new RawWorldState(
                 player.getName().getString(),
                 gameTick,
@@ -86,7 +120,15 @@ public final class FabricWorldAdapter implements BotAdapter {
                 inventory,
                 shelterDistance,
                 hasShelter,
-                chat);
+                chat,
+                posX,
+                posY,
+                posZ,
+                lightLevel,
+                biome,
+                mainHandItem,
+                offHandItem,
+                nearbyBlocks);
     }
 
     @Override
@@ -120,5 +162,36 @@ public final class FabricWorldAdapter implements BotAdapter {
     /** Inject a chat message for inclusion in the next world-state snapshot. */
     public void injectChat(String senderName, String message) {
         pendingChat.add(senderName + ": " + message);
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Scans a small cube around the player and returns up to
+     * {@value #MAX_NEARBY_BLOCKS} distinct non-trivial block-type names.
+     * The scan intentionally excludes common terrain blocks (dirt, stone, grass)
+     * so the list highlights blocks that are strategically relevant to the agent
+     * (logs, ores, water, chests, crafting tables, etc.).
+     */
+    private static List<String> scanNearbyBlocks(ServerPlayerEntity player, ServerWorld world) {
+        BlockPos origin = player.getBlockPos();
+        Set<String> seen = new LinkedHashSet<>();
+        int r = NEARBY_BLOCK_RADIUS;
+        outer:
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dy = -2; dy <= 4; dy++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (seen.size() >= MAX_NEARBY_BLOCKS) break outer;
+                    BlockState state = world.getBlockState(origin.add(dx, dy, dz));
+                    if (!state.isAir()) {
+                        String name = Registries.BLOCK.getId(state.getBlock()).getPath();
+                        if (!TRIVIAL_BLOCKS.contains(name)) {
+                            seen.add(name);
+                        }
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(seen);
     }
 }

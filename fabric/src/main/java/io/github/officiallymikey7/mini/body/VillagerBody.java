@@ -349,7 +349,7 @@ public final class VillagerBody {
     private LivingEntity findNearestHostile(ServerWorld world, VillagerEntity body) {
        Box dangerBox = body.getBoundingBox().expand(HOSTILE_RADIUS);
        return world.getEntitiesByClass(LivingEntity.class, dangerBox,
-                       e -> e instanceof Monster monster && monster.isAlive())
+                       e -> e instanceof Monster && !e.isDead())
                .stream()
                .min(Comparator.comparingDouble(body::distanceTo))
                .orElse(null);

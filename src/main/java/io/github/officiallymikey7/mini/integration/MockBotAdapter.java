@@ -68,7 +68,9 @@ public final class MockBotAdapter implements BotAdapter {
     public String performAction(String action) {
         String result = actionResults.getOrDefault(action, simulateAction(action));
         actionLog.add(new ActionRecord(action, result));
-        applyActionSideEffects(action);
+        if (!result.startsWith("Error:")) {
+            applyActionSideEffects(action);
+        }
         return result;
     }
 

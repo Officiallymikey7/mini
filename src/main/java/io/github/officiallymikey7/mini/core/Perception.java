@@ -19,12 +19,22 @@ public final class Perception {
 
     private Perception() {}
 
+    /**
+     * Strips a Minecraft namespaced ID prefix (e.g. {@code "minecraft:"}) so that
+     * {@code "minecraft:wooden_pickaxe"} matches the bare name {@code "wooden_pickaxe"}
+     * in {@link #TOOL_NAMES}.
+     */
+    private static String stripNamespace(String name) {
+        int colon = name.indexOf(':');
+        return colon >= 0 ? name.substring(colon + 1) : name;
+    }
+
     /** Returns a fully populated {@link WorldState} from the adapter's raw data. */
     public static WorldState perceive(BotAdapter adapter) {
         BotAdapter.RawWorldState raw = adapter.getWorldState();
 
         boolean isNight  = raw.gameTick >= 13000 && raw.gameTick <= 23000;
-        boolean hasTools = raw.inventory.stream().anyMatch(i -> TOOL_NAMES.contains(i.name));
+        boolean hasTools = raw.inventory.stream().anyMatch(i -> TOOL_NAMES.contains(stripNamespace(i.name)));
 
         return new WorldState(
                 raw.agentName,

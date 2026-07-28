@@ -80,7 +80,9 @@ public final class Planner {
 
         // Imminent hostile threat
         if (defense != null && defense.score >= 80 && !state.nearbyHostiles.isEmpty()) {
-            HostileEntity hostile = state.nearbyHostiles.get(0);
+            HostileEntity hostile = state.nearbyHostiles.stream()
+                    .min(Comparator.comparingDouble(h -> h.distance))
+                    .orElseThrow();
             String action = hostile.distance < 5 ? "attack_nearest_hostile" : "flee_to_shelter";
             return new Subgoal("emergency_defend",
                     "Defend against nearby " + hostile.type,

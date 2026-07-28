@@ -71,9 +71,9 @@ public final class ReflectionMemory {
     private static List<String> computeInventoryDelta(
             List<InventoryItem> before, List<InventoryItem> after) {
         Map<String, Integer> beforeMap = new LinkedHashMap<>();
-        for (InventoryItem i : before) beforeMap.put(i.name, i.count);
+        for (InventoryItem i : before) beforeMap.merge(i.name, i.count, Integer::sum);
         Map<String, Integer> afterMap  = new LinkedHashMap<>();
-        for (InventoryItem i : after)  afterMap.put(i.name, i.count);
+        for (InventoryItem i : after)  afterMap.merge(i.name, i.count, Integer::sum);
 
         List<String> deltas = new ArrayList<>();
         for (Map.Entry<String, Integer> e : afterMap.entrySet()) {

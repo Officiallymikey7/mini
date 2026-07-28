@@ -123,7 +123,7 @@ class StallGuardTest {
         StallGuard fastGuard = new StallGuard(100, 50); // 50ms timeout, 100 max attempts
         fastGuard.recordAttempt("goal_slow");
         assertFalse(fastGuard.isStalled("goal_slow"));
-        Thread.sleep(60); // exceed 50ms timeout
+        Thread.sleep(150); // exceed 50ms timeout with ample margin for scheduler jitter
         assertTrue(fastGuard.isStalled("goal_slow"));
     }
 }

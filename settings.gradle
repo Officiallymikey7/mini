@@ -1,0 +1,16 @@
+pluginManagement {
+    repositories {
+        maven {
+            name = 'Fabric'
+            url = 'https://maven.fabricmc.net/'
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+rootProject.name = 'mini'
+
+// Pure-Java core + tests live at the root.
+// Fabric Loom build lives in the :fabric subproject.
+include 'fabric'

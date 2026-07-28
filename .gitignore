@@ -1,17 +1,17 @@
 # ──────────────────────────────────────────────
-# Secrets & environment
+# Gradle / Java build artifacts
 # ──────────────────────────────────────────────
-.env
-.env.local
-.env.*.local
+.gradle/
+build/
+out/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
 
-# ──────────────────────────────────────────────
-# Node / TypeScript
-# ──────────────────────────────────────────────
-node_modules/
-dist/
-coverage/
-*.js.map
+# Fabric / Minecraft dev cache
+run/
+.fabric/
+remappedSrc/
 
 # ──────────────────────────────────────────────
 # Editor / OS artifacts

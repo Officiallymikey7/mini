@@ -1,212 +1,243 @@
-# mini – Secure, Role-Driven Autonomous Minecraft Agent Framework
+# mini – Role-Driven Autonomous Minecraft Agent (Fabric Mod)
 
-A fully modular, TypeScript-first framework for building intelligent, autonomous Minecraft agents that survive, adapt, and form functional societies — driven by needs, roles, memory, and shared governance.
+A Fabric mod for Minecraft 1.21.1 that brings an intelligent, autonomous agent into your dev world — driven by needs, roles, memory, and shared governance.
+
+> **Platform:** Java 21 · Fabric Loader 0.15.11 · Minecraft 1.21.1
 
 ---
 
-## Architecture
+## Project structure
+
+The repository is a **two-module Gradle project**:
+
+| Module | Purpose |
+|--------|---------|
+| `:` (root) | Pure-Java core logic; no Minecraft/Fabric dependencies. Testable offline. |
+| `:fabric` | Fabric Loom mod build; Minecraft-specific wiring. Depends on root. |
 
 ```
-mini/
-├── src/
-│   ├── agent/
-│   │   └── loop.ts              # Main tick loop + demo entry-point
-│   ├── config/
-│   │   └── secrets.ts           # Env-only secret loading (OPENAI_API_KEY)
-│   ├── core/
-│   │   ├── perception.ts        # World-state snapshot collector
-│   │   ├── needs.ts             # Urgency scoring & priority selection
-│   │   ├── planner.ts           # Hierarchical goal planner
-│   │   └── executor.ts          # Action execution + interruption
-│   ├── memory/
-│   │   ├── reflection.ts        # [Self-Reflection Block] builder
-│   │   └── social.ts            # [Social Horizon Block] builder
-│   ├── roles/
-│   │   └── registry.ts          # Role definitions + extensible registry
-│   ├── governance/
-│   │   └── constitution.ts      # Shared rules, voting, amendments
-│   ├── safety/
-│   │   └── stallGuard.ts        # Goal-obsession / stall detector
-│   └── integration/
-│       └── botAdapter.ts        # Abstract adapter interface + mock adapter
-└── src/__tests__/
-    ├── needs.test.ts
-    ├── stallGuard.test.ts
-    ├── roles.test.ts
-    ├── governance.test.ts
-    └── planner.test.ts
+├── build.gradle                              # Root: plain java plugin + JUnit 5
+├── fabric/
+│   ├── build.gradle                          # :fabric: fabric-loom plugin
+│   └── src/main/java/…/mini/
+│       ├── MiniMod.java                      # Fabric ModInitializer entry-point
+│       ├── command/AgentCommand.java         # /mini command tree
+│       └── integration/FabricWorldAdapter.java
+│
+└── src/
+    ├── main/java/io/github/officiallymikey7/mini/
+    │   ├── agent/
+    │   │   ├── Agent.java                    # Main tick-loop driver
+    │   │   └── AgentConfig.java              # Per-agent configuration
+    │   ├── core/
+    │   │   ├── WorldState.java               # Immutable world-state snapshot
+    │   │   ├── Perception.java               # Adapter → WorldState conversion
+    │   │   ├── Needs.java                    # Urgency scoring (0–100)
+    │   │   ├── Planner.java                  # Hierarchical goal planner
+    │   │   └── Executor.java                 # Action execution
+    │   ├── memory/
+    │   │   ├── ReflectionMemory.java         # [Self-Reflection Block] builder
+    │   │   └── SocialMemory.java             # [Social Horizon Block] builder
+    │   ├── roles/
+    │   │   ├── RoleDefinition.java           # Role data + need-weight map
+    │   │   └── RoleRegistry.java             # Built-in roles + extensible registry
+    │   ├── governance/
+    │   │   └── Constitution.java             # Shared rules, voting, amendments
+    │   ├── safety/
+    │   │   └── StallGuard.java               # Goal-obsession / stall detector
+    │   └── integration/
+    │       ├── BotAdapter.java               # Adapter interface
+    │       └── MockBotAdapter.java           # In-process simulation adapter
+    └── test/java/io/github/officiallymikey7/mini/
+        ├── NeedsTest.java
+        ├── StallGuardTest.java
+        ├── RolesTest.java
+        ├── GovernanceTest.java
+        └── PlannerTest.java
 ```
 
-### How it fits together
+### Agent tick pipeline
 
-Each **agent tick** runs this pipeline:
+Each agent tick runs this pipeline (same logic as the original TypeScript implementation):
 
 ```
-perceive() → computeNeeds() → checkEmergency() → stallGuard check
-           → plan()          → execute()         → record memory
-           → governance check (every N ticks)
+Perception.perceive()
+  → Needs.computeNeeds()
+  → checkEmergency()
+  → StallGuard check
+  → Planner.plan()
+  → Executor.execute()
+  → ReflectionMemory.record()
+  → Constitution.checkViolations()  (every N ticks)
 ```
 
-The planner injects two dynamic memory blocks into every subgoal prompt:
+The planner injects two memory blocks into every subgoal prompt:
 
 - **[Self-Reflection Block]** – recent action outcomes, failures, inventory deltas.
 - **[Social Horizon Block]** – nearby chat messages from other agents.
-
-```
-Template:
-  "Suppose you are {name}. Your goal is: {communityGoal}.
-   Find one subgoal based on your identity, traits, current situation,
-   and observed behaviour of others."
-```
 
 Emergency conditions (close hostiles, critical health, night/no shelter, starvation) **always override** role-biased planning.
 
 ---
 
+## Prerequisites
+
+| Tool | Version |
+|------|---------|
+| JDK  | 21      |
+| Gradle (via wrapper) | 8.8 |
+| Fabric Loader | 0.15.11 |
+| Minecraft | 1.21.1 |
+
+> **No Gradle installation required** if you use IntelliJ IDEA — it handles the Gradle wrapper automatically.
+
+---
+
 ## Setup
-
-### Prerequisites
-
-- Node.js ≥ 18
-- npm ≥ 9
-
-### Install
 
 ```bash
 git clone https://github.com/Officiallymikey7/mini.git
 cd mini
-npm install
 ```
 
-### Environment Variables
-
-⚠️ **Never commit API keys to version control.**
+If you need to bootstrap the Gradle wrapper JAR (first-time setup with a globally-installed Gradle):
 
 ```bash
-cp .env.example .env
-# Edit .env and fill in your values
-```
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `OPENAI_API_KEY` | Yes | – | OpenAI API key (read-only, env-only) |
-| `AGENT_TICK_MS` | No | `5000` | Tick interval in milliseconds |
-| `GOVERNANCE_TICK_INTERVAL` | No | `10` | Run governance checks every N ticks |
-| `LOG_LEVEL` | No | `info` | Log verbosity: debug / info / warn / error |
-
-### Build
-
-```bash
-npm run build   # Compiles TypeScript → dist/
+gradle wrapper --gradle-version 8.8
 ```
 
 ---
 
-## Running the Simulation
-
-### Mock demo (no Minecraft server required)
+## Build
 
 ```bash
-npm start
-# or: npx ts-node src/agent/loop.ts
+# Full Fabric mod build (requires Java 21 + network access to maven.fabricmc.net)
+./gradlew :fabric:build
 ```
 
-The demo creates a simulated agent named **Arlo** using the `MockBotAdapter`.  
-No network connection or Minecraft server is needed — everything runs in-process.
-
-Sample output:
-```
-=== Minecraft Agent Demo ===
-Running 5 ticks…
-
-[INFO ] Agent Arlo starting (role: farmer)
-[INFO ] [Tick 1] Subgoal: [Emergency] Seek or build emergency shelter → action: find_or_build_shelter
-[INFO ] [Tick 2] Subgoal: [Farmer] Gather or grow food to restore hunger → action: gather_food
-...
-
-Action log:
-  • find_or_build_shelter: Located and entered nearby shelter.
-  • gather_food: Found and collected 2 apples.
-```
+The compiled mod JAR will appear in `fabric/build/libs/`.
 
 ---
 
 ## Running Tests
 
+Unit tests cover core logic and run **offline** (no Minecraft runtime needed):
+
 ```bash
-npm test            # Run all tests with coverage
-npm test -- --watch # Watch mode
+# Using the Gradle wrapper (recommended):
+./gradlew :test --configure-on-demand
+
+# Or with a globally-installed Gradle:
+gradle :test --configure-on-demand
 ```
 
-All 43 tests should pass across 5 test suites:
-- `needs.test.ts` – urgency scoring, priority ordering
-- `stallGuard.test.ts` – stall detection, fallback actions
-- `roles.test.ts` – registry, role biasing, emergency override
-- `governance.test.ts` – proposals, voting, amendments, violation checks
-- `planner.test.ts` – emergency paths, social reactions, memory blocks
+The `--configure-on-demand` flag tells Gradle to skip configuring the `:fabric`
+subproject (which needs Fabric Maven) so tests run without network access.
+
+Test suites:
+- `NeedsTest` – urgency scoring, priority ordering
+- `StallGuardTest` – stall detection, fallback actions, timeout-based stall
+- `RolesTest` – registry look-up, need weights, custom role registration
+- `GovernanceTest` – proposals, voting, amendments, violation checks
+- `PlannerTest` – emergency paths, social reactions, role-biased planning, prompt context
+
+---
+
+## Running in a Dev World (Fabric)
+
+```bash
+./gradlew :fabric:runClient      # launch Minecraft with the mod loaded
+# or
+./gradlew :fabric:runServer      # launch a dedicated server
+```
+
+Once in-game, use the `/mini` command:
+
+| Command | Description |
+|---------|-------------|
+| `/mini start [role]` | Start the agent with the given role (default: `farmer`) |
+| `/mini stop`         | Stop the running agent |
+| `/mini status`       | Show current tick count and latest world state |
+| `/mini roles`        | List all available roles |
+
+The agent runs one logic cycle every **100 game ticks (5 seconds)** driven by the server tick event.
+
+### Example session
+
+```
+/mini roles
+→ [Mini] Available roles: farmer (Farmer), trader (Trader / Merchant), guard (Guard / Defender), ...
+
+/mini start farmer
+→ [Mini] Agent started as role: farmer. Use /mini stop to stop.
+
+# After a few cycles (check server log):
+[INFO] [Arlo] [Tick 1] Subgoal: [Emergency] Seek or build emergency shelter → action: find_or_build_shelter
+[INFO] [Arlo] SUCCESS: Located and entered nearby shelter.
+[INFO] [Arlo] [Tick 2] Subgoal: [Farmer] Gather or grow food to restore hunger → action: gather_food
+
+/mini status
+→ [Mini] Agent running – tick=3 health=20.0 hunger=18
+
+/mini stop
+→ [Mini] Agent stopped.
+```
+
+---
+
+## Built-in Roles
+
+| ID | Label | Boosted Needs |
+|----|-------|--------------|
+| `farmer` | Farmer | food ×1.4, resources ×1.2 |
+| `trader` | Trader / Merchant | resources ×1.5, tools ×1.2 |
+| `guard` | Guard / Defender | survival_defense ×1.5, tools ×1.3 |
+| `priest` | Cultural Leader / Priest | shelter ×1.2 |
+| `adventurer` | Adventurer / Explorer | resources ×1.4, tools ×1.3 |
+| `blacksmith` | Blacksmith | tools ×1.6, resources ×1.3 |
 
 ---
 
 ## Adding a New Role
 
-1. Open `src/roles/registry.ts`
-2. Define a `RoleDefinition` object:
+```java
+RoleDefinition healer = RoleDefinition.builder("healer")
+        .label("Healer")
+        .communityGoal("Keep all community members healthy and fed.")
+        .needWeight(NeedType.FOOD, 1.4)
+        .needWeight(NeedType.SHELTER, 1.2)
+        .traits("compassionate", "knowledgeable", "calm")
+        .build();
 
-```typescript
-const HEALER: RoleDefinition = {
-  id: 'healer',
-  label: 'Healer',
-  communityGoal: 'Keep all community members healthy and fed.',
-  needWeights: {
-    food: 1.4,    // Boosted: healers care about food supply
-    shelter: 1.2, // Boosted: safe space to treat patients
-  },
-  traits: ['compassionate', 'knowledgeable', 'calm'],
-};
+RoleRegistry.register(healer);
 ```
 
-3. Add it to `DEFAULT_ROLES` (or call `registerRole(HEALER)` at startup).
-4. Assign the role id `'healer'` in your `AgentConfig`.
-
 Need weights > 1.0 boost that need's urgency; < 1.0 reduce it.  
-**Emergency survival needs (score ≥ 75) are never reduced below their emergency threshold.**
+**Emergency survival needs (score ≥ 75) are never reduced below their threshold.**
 
 ---
 
-## Integration: Connecting a Real Minecraft Server
+## Custom Adapter
 
-The framework is adapter-agnostic. Implement the `BotAdapter` interface in `src/integration/botAdapter.ts`:
+Implement `BotAdapter` to connect the agent to any environment:
 
-```typescript
-export interface BotAdapter {
-  getWorldState(): Promise<RawWorldState>;
-  performAction(action: string): Promise<string>;
-  sendChat(message: string): Promise<void>;
-}
-```
+```java
+public final class MyAdapter implements BotAdapter {
 
-Example with [mineflayer](https://github.com/PrismarineJS/mineflayer):
+    @Override
+    public RawWorldState getWorldState() {
+        // Return current world data
+        return new RawWorldState(...);
+    }
 
-```typescript
-import mineflayer from 'mineflayer';
-import type { BotAdapter, RawWorldState } from './integration/botAdapter';
+    @Override
+    public String performAction(String action) {
+        // Execute the action; return "Error: ..." on failure
+        return "Done.";
+    }
 
-export class MineflayerAdapter implements BotAdapter {
-  constructor(private bot: mineflayer.Bot) {}
-
-  async getWorldState(): Promise<RawWorldState> {
-    // Map mineflayer world state to RawWorldState
-    return { ... };
-  }
-
-  async performAction(action: string): Promise<string> {
-    // Dispatch action string to mineflayer pathfinding/crafting APIs
-    return 'done';
-  }
-
-  async sendChat(message: string): Promise<void> {
-    this.bot.chat(message);
-  }
+    @Override
+    public void sendChat(String message) { /* ... */ }
 }
 ```
 
@@ -214,43 +245,23 @@ export class MineflayerAdapter implements BotAdapter {
 
 ## Governance / Constitution
 
-Agents share a `Constitution` that stores community rules and handles amendments via a voting loop:
+```java
+Constitution constitution = new Constitution();
 
-```typescript
-const constitution = new Constitution(new InMemoryConstitutionStorage());
+Amendment a = constitution.proposeAmendment(
+        "agentA", "No agent shall destroy another agent's crops.");
 
-// Agent proposes a new rule
-const amendment = await constitution.proposeAmendment(
-  'agentA',
-  'No agent shall destroy another agent's crops.',
-);
+constitution.vote(a.id, "agentA", "yes");
+constitution.vote(a.id, "agentB", "yes");
+constitution.vote(a.id, "agentC", "no");
 
-// Agents vote
-await constitution.vote(amendment.id, 'agentA', 'yes');
-await constitution.vote(amendment.id, 'agentB', 'yes');
-await constitution.vote(amendment.id, 'agentC', 'no');
+Amendment result = constitution.tally(a.id, 3);
+// result.status == ACCEPTED → rule is now active
 
-// Tally (pass threshold = 50%)
-const result = await constitution.tally(amendment.id, 3);
-// result.status === 'accepted' → rule is now active
-
-// Check for violations
-const violations = await constitution.checkViolations('Player was seen stealing crops');
+List<Rule> violations = constitution.checkViolations("Someone was seen stealing crops");
 ```
 
-To connect a real shared document (e.g. Google Docs), implement `DocConstitutionStorage` and pass it to the `Constitution` constructor.
-
----
-
-## Security Note
-
-⚠️ **API Key Safety**
-
-- The `OPENAI_API_KEY` is **only ever read from `process.env`** (see `src/config/secrets.ts`).
-- The key is **never** accepted as a function argument, constructor parameter, config file value, or hardcoded string.
-- `.env` is in `.gitignore` — it will not be committed.
-- If you accidentally expose a key in a commit, **revoke it immediately** at [platform.openai.com/api-keys](https://platform.openai.com/api-keys) and generate a new one.
-- Run `git log --all -S 'sk-'` to scan your history for accidentally committed keys.
+To connect a shared document store, implement `ConstitutionStorage` and pass it to the `Constitution` constructor.
 
 ---
 

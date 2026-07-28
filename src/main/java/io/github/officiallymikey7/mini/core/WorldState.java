@@ -46,8 +46,7 @@ public final class WorldState {
     public final String mainHandItem;
     /** Item held in the off hand (e.g. {@code "shield"}, {@code "air"} if empty). */
     public final String offHandItem;
-    /** Distinct non-trivial block types visible within a short radius. */
-    public final List<String> nearbyBlocks;
+    /** Distinct non-trivial block types nearby within a short radius. */
 
     public WorldState(
             String agentName,

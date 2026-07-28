@@ -29,7 +29,7 @@ repositories {
 }
 
 dependencies {
-    // Core agent logic from the root project (compile-time)
+    // Core agent logic from the root project (compile + runtime)
     implementation project(':')
 
     // Minecraft + Fabric

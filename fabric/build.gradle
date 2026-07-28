@@ -29,7 +29,7 @@ repositories {
 }
 
 dependencies {
-    // Core agent logic from the root project
+    // Core agent logic from the root project (compile + runtime)
     implementation project(':')
 
     // Minecraft + Fabric
@@ -37,6 +37,12 @@ dependencies {
     mappings  "net.fabricmc:yarn:${rootProject.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_version}"
+}
+
+// Bundle root-project compiled classes directly into the mod JAR so that
+// BotAdapter and all other common classes are present in mini-fabric-*.jar.
+jar {
+    from project(':').sourceSets.main.output
 }
 
 processResources {

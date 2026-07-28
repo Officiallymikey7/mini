@@ -168,47 +168,17 @@ Once in-game, use the `/mini` command:
 | `/mini status`       | Show current tick count and latest world state |
 | `/mini roles`        | List all available roles |
 
-The agent runs one logic cycle every **100 game ticks (5 seconds)** driven by the server tick event.
+The agent runs one logic cycle every **20 game ticks (1 second)** driven by the server tick event.
 
 ---
 
-## AI NPC Body
+## Villager Body Runtime
 
-When you run `/mini start`, the mod spawns an **`AiPlayerEntity`** in the world immediately (same tick as the command) — no deferred initialization.
+When you run `/mini start`, the mod now binds the agent to a **real `VillagerEntity`** (nearest available villager) or spawns one if needed.
 
-### Rendering and animations
+### Runtime behaviour
 
-The entity is rendered by `AiPlayerRenderer`, which uses Minecraft's built-in `BipedEntityModel` baked from `EntityModelLayers.PLAYER`:
-
-```
-AiPlayerRenderer
-  └─ MobEntityRenderer<AiPlayerEntity, BipedEntityModel<AiPlayerEntity>>
-       └─ BipedEntityModel(ctx.getPart(EntityModelLayers.PLAYER))
-```
-
-This gives the NPC all standard vanilla biped animations **automatically**:
-
-| Animation | Driven by |
-|-----------|-----------|
-| Walking / leg swing | `limbAnimator` (updated by entity movement) |
-| Arm swing | `swingHand(Hand.MAIN_HAND)` → `aiSwingArm()` |
-| Crouching | `setSneaking(true)` → `aiSetSneaking(true)` |
-| Sprinting stance | `setSprinting(true)` → `aiSetSprinting(true)` |
-| Head yaw / pitch | `LookControl` → `aiLookAt(x, y, z)` |
-
-Replace `assets/mini/textures/entity/ai_player.png` with any standard 64 × 64 player skin to customise the appearance.
-
-### Agent hook methods
-
-`AiPlayerEntity` exposes a set of `ai*` methods that the agent (or `VillagerBody`) calls to drive the NPC:
-
-| Method | Effect |
-|--------|--------|
-| `aiMoveTo(x, y, z, speed)` | Path to a world position |
-| `aiLookAt(x, y, z)` | Rotate head toward a point |
-| `aiSwingArm()` | Play main-hand swing animation |
-| `aiSetSprinting(boolean)` | Toggle sprint state |
-| `aiSetSneaking(boolean)` | Toggle crouch / sneak pose |
+`VillagerBody` executes long-running survival actions every tick (movement, shelter seeking, wood/food gathering, and emergency fleeing) while the planner continues to choose high-level actions.
 
 ### Spawn and lifecycle
 
@@ -216,10 +186,11 @@ Replace `assets/mini/textures/entity/ai_player.png` with any standard 64 × 64 p
 /mini start [role]
   ├─ AgentCommand.startAgent()
   │    ├─ creates VillagerBody
-  │    ├─ calls body.ensureSpawned(player)   ← spawns AiPlayerEntity immediately
-  │    └─ registers ActiveEntry in ACTIVE_AGENTS
+  │    ├─ calls body.ensureSpawned(player)   ← binds/spawns VillagerEntity
+  │    └─ registers ActiveEntry keyed by villager UUID
   └─ server tick (every tick)
-       └─ VillagerBody.tick(player)          ← drives following + respawn if needed
+       ├─ VillagerBody.tick(player)          ← drives autonomous action task runtime
+       └─ Agent.tick() (every 20 ticks)      ← plans next high-level action
 ```
 
 `VillagerBody` also calls `ensureSpawned` on every tick, so the body automatically respawns if it is killed or lost (e.g. after a server restart).

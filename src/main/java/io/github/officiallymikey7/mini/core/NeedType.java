@@ -6,5 +6,11 @@ public enum NeedType {
     FOOD,
     SHELTER,
     TOOLS,
-    RESOURCES
+    RESOURCES,
+    /** Upgrade to better tool/armour tier (iron → diamond → netherite). Utility 0–75. */
+    GEAR_UP,
+    /** Construct or improve a home base; triggered by full inventory or approaching night. Utility 0–60. */
+    BUILD_BASE,
+    /** Default idle exploration when all survival needs are satisfied. Utility 0–20. */
+    EXPLORE
 }

@@ -71,8 +71,78 @@ public final class Needs {
         double resourceScore = woodCount < 16 ? 30 : 10;
         scores.add(new NeedScore(NeedType.RESOURCES, resourceScore, "Wood: " + woodCount));
 
+        // ── Gear-Up (0–75): upgrade tool / armour tier ───────────────────────
+        int bestTier = detectBestGearTier(state);
+        double gearUpScore = switch (bestTier) {
+            case 0 -> 75.0; // no tools at all
+            case 1 -> 25.0; // only wood / gold tools
+            case 2 -> 18.0; // stone tools
+            case 3 -> 10.0; // iron tools – diamond upgrade worthwhile
+            case 4 ->  5.0; // diamond – minor netherite nudge
+            default ->  0.0; // netherite – maxed out
+        };
+        scores.add(new NeedScore(NeedType.GEAR_UP, gearUpScore,
+                "Best gear tier: " + bestTier));
+
+        // ── Build-Base (0–60): proactive base construction ───────────────────
+        int invCount = state.inventory.size();
+        double buildScore;
+        if (state.isNight && !state.hasShelter) {
+            buildScore = 58.0; // night + no shelter: urgent base needed
+        } else if (!state.hasShelter && state.gameTick >= 10_000 && state.gameTick < 13_000) {
+            buildScore = 45.0; // dusk approaching + no shelter
+        } else if (!state.hasShelter) {
+            buildScore = 25.0; // daytime prep before nightfall
+        } else {
+            buildScore = 5.0;  // has shelter: low maintenance drive
+        }
+        // Bonus when inventory is nearly full (> 25 stacks) – agent needs a chest
+        if (invCount > 25) buildScore = Math.min(60.0, buildScore + 15.0);
+        scores.add(new NeedScore(NeedType.BUILD_BASE, buildScore,
+                "Shelter: " + state.hasShelter + ", inv: " + invCount + " stacks"));
+
+        // ── Explore (0–20): default idle baseline ────────────────────────────
+        boolean allSafe = defenseScore <= 10 && foodScore <= 10
+                && shelterScore == 0 && !state.isNight;
+        double exploreScore = allSafe ? 20.0 : 5.0;
+        scores.add(new NeedScore(NeedType.EXPLORE, exploreScore,
+                allSafe ? "All needs satisfied" : "Survival needs active"));
+
         scores.sort(Comparator.comparingDouble((NeedScore n) -> n.score).reversed());
         return scores;
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Returns the best gear tier found in the inventory:
+     * 0=none, 1=wood/gold, 2=stone, 3=iron, 4=diamond, 5=netherite.
+     * Falls back to tier 1 when {@code state.hasTools} is {@code true} but no
+     * named tool items are present (e.g. in unit tests with abstract inventory).
+     */
+    private static int detectBestGearTier(WorldState state) {
+        int best = 0;
+        for (InventoryItem item : state.inventory) {
+            String n = item.name.toLowerCase();
+            if (n.contains("netherite_pickaxe") || n.contains("netherite_sword")
+                    || n.contains("netherite_axe")) {
+                best = Math.max(best, 5);
+            } else if (n.contains("diamond_pickaxe") || n.contains("diamond_sword")
+                    || n.contains("diamond_axe")) {
+                best = Math.max(best, 4);
+            } else if (n.contains("iron_pickaxe") || n.contains("iron_sword")
+                    || n.contains("iron_axe")) {
+                best = Math.max(best, 3);
+            } else if (n.contains("stone_pickaxe") || n.contains("stone_sword")
+                    || n.contains("stone_axe")) {
+                best = Math.max(best, 2);
+            } else if (n.contains("pickaxe") || n.contains("sword") || n.contains("_axe")) {
+                best = Math.max(best, 1); // wood / gold
+            }
+        }
+        // If hasTools is true but no tool item was found, treat as wood-tier
+        if (best == 0 && state.hasTools) best = 1;
+        return best;
     }
 
     /** Returns the single highest-priority need (deterministic). */

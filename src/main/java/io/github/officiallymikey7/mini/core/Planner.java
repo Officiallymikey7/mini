@@ -41,6 +41,12 @@ public final class Planner {
                 new ActionMapping("craft_tools", "Gather wood and craft basic tools"));
         NEED_ACTION_MAP.put(NeedType.RESOURCES,
                 new ActionMapping("gather_wood", "Chop trees and gather wood resources"));
+        NEED_ACTION_MAP.put(NeedType.GEAR_UP,
+                new ActionMapping("upgrade_gear", "Mine and craft better tools or armour"));
+        NEED_ACTION_MAP.put(NeedType.BUILD_BASE,
+                new ActionMapping("build_base", "Construct or expand home base with chests and crafting area"));
+        NEED_ACTION_MAP.put(NeedType.EXPLORE,
+                new ActionMapping("explore", "Explore surroundings for resources and points of interest"));
     }
 
     // ── Social reaction patterns ─────────────────────────────────────────────

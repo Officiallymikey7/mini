@@ -142,7 +142,9 @@ public final class FabricWorldAdapter implements BotAdapter {
 
     @Override
     public String performAction(String action) {
-        return switch (action) {
+        // Strip humanizer strafe suffixes before dispatching
+        String baseAction = action.contains(":") ? action.substring(0, action.indexOf(':')) : action;
+        return switch (baseAction) {
             case "explore"               -> { player.sendMessage(Text.of("[Mini] Exploring…"), false); yield "Exploring area."; }
             case "flee_to_shelter"       -> { player.sendMessage(Text.of("[Mini] Fleeing to shelter!"), false); yield "Fleeing to shelter."; }
             case "find_or_build_shelter" -> { player.sendMessage(Text.of("[Mini] Seeking shelter…"), false); yield "Seeking shelter."; }
@@ -154,6 +156,25 @@ public final class FabricWorldAdapter implements BotAdapter {
             case "build_shelter"         -> { player.sendMessage(Text.of("[Mini] Building shelter…"), false); yield "Building shelter."; }
             case "attack_nearest_hostile"-> { player.sendMessage(Text.of("[Mini] Attacking hostile!"), false); yield "Attacking nearest hostile."; }
             case "craft_sword_or_flee"   -> { player.sendMessage(Text.of("[Mini] Preparing defense…"), false); yield "Preparing defense."; }
+            // ── New GOAP actions ──────────────────────────────────────────────
+            case "upgrade_gear"          -> { player.sendMessage(Text.of("[Mini] Upgrading gear…"), false); yield "Upgrading gear."; }
+            case "build_base"            -> { player.sendMessage(Text.of("[Mini] Building base…"), false); yield "Building base."; }
+            case "craft_planks"          -> { player.sendMessage(Text.of("[Mini] Crafting planks…"), false); yield "Crafting planks."; }
+            case "craft_sticks"          -> { player.sendMessage(Text.of("[Mini] Crafting sticks…"), false); yield "Crafting sticks."; }
+            case "mine_stone"            -> { player.sendMessage(Text.of("[Mini] Mining stone…"), false); yield "Mining stone."; }
+            case "craft_stone_tools"     -> { player.sendMessage(Text.of("[Mini] Crafting stone tools…"), false); yield "Crafting stone tools."; }
+            case "mine_iron"             -> { player.sendMessage(Text.of("[Mini] Mining iron…"), false); yield "Mining iron ore."; }
+            case "smelt_iron"            -> { player.sendMessage(Text.of("[Mini] Smelting iron…"), false); yield "Smelting iron ingots."; }
+            case "craft_iron_tools"      -> { player.sendMessage(Text.of("[Mini] Crafting iron tools…"), false); yield "Crafting iron tools."; }
+            case "mine_diamonds"         -> { player.sendMessage(Text.of("[Mini] Mining diamonds…"), false); yield "Mining diamond ore."; }
+            case "craft_diamond_tools"   -> { player.sendMessage(Text.of("[Mini] Crafting diamond tools…"), false); yield "Crafting diamond tools."; }
+            case "craft_iron_pickaxe"    -> { player.sendMessage(Text.of("[Mini] Crafting iron pickaxe…"), false); yield "Crafting iron pickaxe."; }
+            case "craft_shield"          -> { player.sendMessage(Text.of("[Mini] Crafting shield…"), false); yield "Crafting shield."; }
+            case "place_crafting_table"  -> { player.sendMessage(Text.of("[Mini] Placing crafting table…"), false); yield "Placing crafting table."; }
+            case "gather_cobblestone"    -> { player.sendMessage(Text.of("[Mini] Gathering cobblestone…"), false); yield "Gathering cobblestone."; }
+            case "build_shelter_walls"   -> { player.sendMessage(Text.of("[Mini] Building shelter walls…"), false); yield "Building shelter walls."; }
+            case "add_door"              -> { player.sendMessage(Text.of("[Mini] Adding door…"), false); yield "Adding door to shelter."; }
+            case "place_chest"           -> { player.sendMessage(Text.of("[Mini] Placing chest…"), false); yield "Placing storage chest."; }
             default                      -> { player.sendMessage(Text.of("[Mini] " + action), false); yield "Performed: " + action; }
         };
     }

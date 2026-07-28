@@ -42,6 +42,8 @@ public class AiPlayerEntity extends PathAwareEntity {
 
     @Override
     protected void initGoals() {
+        // Priority 0 – parkour override: activates when jumping / bridging is required
+        this.goalSelector.add(0, new ParkourMoveGoal(this));
         // Priority 1 – AI-driven navigation; starts only when hasDestination is true
         this.goalSelector.add(1, new AiMoveToGoal(this));
         // Priority 2/3 – idle wander + look-around when the agent has no destination
@@ -126,6 +128,67 @@ public class AiPlayerEntity extends PathAwareEntity {
      */
     public void aiSetSneaking(boolean sneaking) {
         this.setSneaking(sneaking);
+    }
+
+    /**
+     * Triggers a jump.  Safe to call on the server tick thread; the jump impulse
+     * is applied on the next physics tick via {@link net.minecraft.entity.LivingEntity#jump()}.
+     */
+    public void aiJump() {
+        this.jump();
+    }
+
+    /**
+     * Attempts to place a solid block directly under the agent's feet to gain
+     * elevation (pillar-up) or bridge over a gap.
+     *
+     * <p>The entity must hold a placeable block in its main hand.  This method
+     * calls the entity's use-item logic against the block face below, which
+     * triggers the standard block-placement pipeline including adventure-mode
+     * and claim checks.
+     *
+     * <p>Returns {@code true} when a placement attempt was dispatched.
+     * Success is not guaranteed – the block may fail to place if the face is
+     * obstructed or the item is not a block.
+     *
+     * @return {@code true} when the placement attempt was made
+     */
+    public boolean aiPlaceBlockUnderFoot() {
+        net.minecraft.util.math.BlockPos below = this.getBlockPos().down();
+        net.minecraft.world.World w = this.getWorld();
+        if (!w.isClient() && w.getBlockState(below).isAir()) {
+            net.minecraft.item.ItemStack stack = this.getMainHandStack();
+            if (!stack.isEmpty() && stack.getItem() instanceof net.minecraft.item.BlockItem blockItem) {
+                net.minecraft.util.math.BlockPos target = below;
+                net.minecraft.item.ItemPlacementContext ctx =
+                        new net.minecraft.item.ItemPlacementContext(
+                                new net.minecraft.item.ItemUsageContext(
+                                        (net.minecraft.server.world.ServerWorld) w,
+                                        null,
+                                        net.minecraft.util.Hand.MAIN_HAND,
+                                        stack,
+                                        new net.minecraft.util.hit.BlockHitResult(
+                                                this.getPos(),
+                                                net.minecraft.util.math.Direction.UP,
+                                                target,
+                                                false)));
+                blockItem.place(ctx);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Performs a jump-and-place sequence to ascend one block height (pillar up).
+     * Calls {@link #aiJump()} followed by {@link #aiPlaceBlockUnderFoot()} so the
+     * block lands just as the entity clears the ledge.
+     *
+     * @return {@code true} when both the jump impulse and placement were dispatched
+     */
+    public boolean aiPillarUp() {
+        aiJump();
+        return aiPlaceBlockUnderFoot();
     }
 
     // ── Package-private accessors for AiMoveToGoal ───────────────────────────

@@ -193,7 +193,7 @@ When you run `/mini start`, the mod now binds the agent to a **real `VillagerEnt
        └─ Agent.tick() (every 20 ticks)      ← plans next high-level action
 ```
 
-`VillagerBody` also calls `ensureSpawned` on every tick, so the body automatically respawns if it is killed or lost (e.g. after a server restart).
+`VillagerBody` also calls `ensureSpawned` on every tick, so if a villager is killed during a session the body automatically binds to or spawns a replacement. Note that runtime state is held in memory; a server restart will require issuing `/mini start` again to reattach an agent.
 
 ### Example session
 

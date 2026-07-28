@@ -80,9 +80,22 @@ public final class FabricWorldAdapter implements BotAdapter {
         int gameTick = (int) (world.getTimeOfDay() % 24000);
         long worldTime = world.getTimeOfDay(); // monotonically increasing; used for cache tracking
 
+        // --- inventory (built first so hunger can be derived from food count) ---
+        List<InventoryItem> inventory = body.getInventorySnapshot();
+
         // --- health / hunger ---
+        // Hunger is derived from the villager inventory food count so that the planner
+        // correctly treats low food stock as a FOOD urgency trigger rather than relying
+        // on damage-based health proxy.
         float health = villager.getHealth();
-        float hunger = Math.max(0f, Math.min(20f, health));
+        int foodCount = 0;
+        for (InventoryItem item : inventory) {
+            if ("minecraft:bread".equals(item.name)) {
+                foodCount = item.count;
+                break;
+            }
+        }
+        float hunger = Math.min(20f, foodCount * 4f);
 
         // --- nearby hostiles ---
         Box box = villager.getBoundingBox().expand(DETECTION_RADIUS);
@@ -92,9 +105,6 @@ public final class FabricWorldAdapter implements BotAdapter {
             double dist = villager.distanceTo(entity);
             hostiles.add(new HostileEntity(entity.getType().toString(), dist));
         }
-
-        // --- inventory ---
-        List<InventoryItem> inventory = body.getInventorySnapshot();
 
         // --- shelter heuristic: agent is sheltered when indoors (no sky exposure) ---
         boolean hasShelter = !world.isSkyVisible(villager.getBlockPos().up());

@@ -169,7 +169,11 @@ public final class VillagerBody {
     }
 
     private void spawnNewVillager(ServerPlayerEntity player, ServerWorld world, String worldKey) {
-       VillagerEntity body = new VillagerEntity(EntityType.VILLAGER, world);
+       VillagerEntity body = EntityType.VILLAGER.create(world);
+       if (body == null) {
+           LOG.warn("[Mini] EntityType.VILLAGER.create returned null; cannot spawn VillagerBody for agent {}", ownerUuid);
+           return;
+       }
 
        Vec3d spawnPos = player.getPos().add(2.0, 0.0, 0.0);
        body.refreshPositionAndAngles(spawnPos.x, spawnPos.y, spawnPos.z, 0f, 0f);
@@ -411,12 +415,18 @@ public final class VillagerBody {
        BlockPos best = null;
        double bestDist = Double.MAX_VALUE;
        BlockPos.Mutable mutable = new BlockPos.Mutable();
+       BlockPos.Mutable below = new BlockPos.Mutable();
        for (int dx = -radius; dx <= radius; dx++) {
            for (int dy = -3; dy <= 4; dy++) {
                for (int dz = -radius; dz <= radius; dz++) {
                    mutable.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
-                   if (world.getBlockState(mutable).isAir()) continue;
-                   if (world.isSkyVisible(mutable.up())) continue;
+                   // Candidate must be an air block the villager can stand in
+                   if (!world.getBlockState(mutable).isAir()) continue;
+                   // Must have overhead cover (no direct sky access from standing position)
+                   if (world.isSkyVisible(mutable)) continue;
+                   // Must have a solid floor directly below
+                   below.set(origin.getX() + dx, origin.getY() + dy - 1, origin.getZ() + dz);
+                   if (!world.getBlockState(below).isSolidBlock(world, below)) continue;
 
                    double dist = origin.getSquaredDistance(mutable);
                    if (dist < bestDist) {

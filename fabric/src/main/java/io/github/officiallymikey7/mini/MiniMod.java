@@ -1,6 +1,7 @@
 package io.github.officiallymikey7.mini;
 
 import io.github.officiallymikey7.mini.command.AgentCommand;
+import io.github.officiallymikey7.mini.entity.EntityTypes;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -35,6 +36,9 @@ public final class MiniMod implements ModInitializer {
     @Override
     public void onInitialize() {
         LOGGER.info("[Mini] Initialising…");
+
+        // Register custom entity type and bind its default attributes
+        EntityTypes.register();
 
         // Register /mini commands
         CommandRegistrationCallback.EVENT.register(
